@@ -1,0 +1,113 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e38]:
+    - banner [ref=e39]:
+      - link "POSHinit command deck" [ref=e40] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=e41]: PS
+      - button "Collapse navigation" [ref=e43] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e45]: 󰍜
+      - generic [ref=e46]:
+        - generic [ref=e47]: CONTROL PLANE
+        - generic [aria-hidden] [ref=e48]: 󰅂
+        - strong [ref=e49]: SCRIPT STUDIO
+      - generic [ref=e50]:
+        - button "Refresh data" [ref=e53] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e55]: 󰑐
+        - button [ref=e234] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e58]: 󰭕
+          - generic [aria-hidden] [ref=e61]: 󰅀
+    - complementary [ref=e62]:
+      - navigation "Primary navigation" [ref=e64]:
+        - link [ref=e235] [cursor=pointer]:
+          - /url: /dashboard
+          - generic [aria-hidden] [ref=e66]: 󰨝
+        - link [ref=e236] [cursor=pointer]:
+          - /url: /editor
+          - generic [aria-hidden] [ref=e69]: 󰞷
+        - link [ref=e237] [cursor=pointer]:
+          - /url: /scheduler
+          - generic [aria-hidden] [ref=e72]: 󱛡
+        - link [ref=e238] [cursor=pointer]:
+          - /url: /reports
+          - generic [aria-hidden] [ref=e75]: 󰐰
+        - link [ref=e239] [cursor=pointer]:
+          - /url: /inventory
+          - generic [aria-hidden] [ref=e78]: 󱲙
+        - link [ref=e240] [cursor=pointer]:
+          - /url: /vault
+          - generic [aria-hidden] [ref=e81]: 󰌋
+        - link [ref=e241] [cursor=pointer]:
+          - /url: /teams
+          - generic [aria-hidden] [ref=e84]: 󰭘
+        - link [ref=e242] [cursor=pointer]:
+          - /url: /settings
+          - generic [aria-hidden] [ref=e87]: 󰢻
+      - generic [aria-hidden] [ref=e95]: 󱲚
+    - main [ref=e97]:
+      - text: 󰞷 󰅖
+      - generic [ref=e243]:
+        - generic [ref=e244]:
+          - generic [ref=e245]:
+            - paragraph [ref=e246]: Monaco Workspace
+            - heading "VSCode-style PowerShell editor with floating library explorer" [level=2] [ref=e247]
+          - generic [ref=e248]:
+            - button "Open Library" [ref=e249] [cursor=pointer]:
+              - generic [aria-hidden] [ref=e251]: 󰷏
+            - button "Version History" [ref=e253] [cursor=pointer]:
+              - generic [aria-hidden] [ref=e255]: 󰢪
+            - button "Syntax Check" [ref=e257] [cursor=pointer]:
+              - generic [aria-hidden] [ref=e259]: 󱝀
+            - button "Save" [ref=e261] [cursor=pointer]:
+              - generic [aria-hidden] [ref=e263]: 󰠘
+        - generic [ref=e265]:
+          - generic [ref=e267]:
+            - paragraph [ref=e268]: Editor Surface
+            - heading "Script Authoring" [level=3] [ref=e269]
+          - generic [ref=e270]:
+            - generic [ref=e271]:
+              - generic [ref=e272]:
+                - generic [ref=e275]:
+                  - generic: Name
+                  - textbox "Name" [ref=e276]
+                - alert [ref=e277]
+              - generic [ref=e279]:
+                - combobox [ref=e281] [cursor=pointer]:
+                  - generic [ref=e283]:
+                    - generic [ref=e284]: script
+                    - combobox "Entry Type": script
+                  - generic [aria-hidden] [ref=e287]: 󰍝
+                  - generic: Entry Type
+                - alert [ref=e288]
+              - generic [ref=e290]:
+                - combobox [ref=e292] [cursor=pointer]:
+                  - generic [ref=e294]:
+                    - generic [ref=e295]: personal
+                    - combobox "Library Scope": personal
+                  - generic [aria-hidden] [ref=e298]: 󰍝
+                  - generic: Library Scope
+                - alert [ref=e299]
+              - generic [ref=e301]:
+                - generic [ref=e303]:
+                  - generic [ref=e304]:
+                    - generic [ref=e305] [cursor=pointer]
+                    - checkbox "Published to shared consumers" [ref=e307] [cursor=pointer]
+                  - generic [ref=e308] [cursor=pointer]: Published to shared consumers
+                - alert [ref=e309]
+              - generic [ref=e311]:
+                - generic [ref=e314]:
+                  - generic: Operational notes
+                  - textbox "Operational notes" [ref=e315]
+                - alert [ref=e316]
+            - code [ref=e319]:
+              - generic [ref=e320]:
+                - textbox "Editor content"
+                - textbox [aria-hidden] [ref=e321]
+                - generic [ref=e324]: "1"
+                - generic [ref=e327]: Write-Output 'Hello from POSHinit'
+    - contentinfo [ref=e227]:
+      - generic [ref=e228]: SYSTEM READY
+      - generic [ref=e230]: 1 NODES
+      - generic [ref=e233]: LOCAL API :4000
+  - generic [ref=e368]:
+    - alert
+    - alert

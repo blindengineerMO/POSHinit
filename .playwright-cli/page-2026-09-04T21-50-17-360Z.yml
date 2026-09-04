@@ -1,0 +1,156 @@
+- generic [ref=e1]:
+  - generic [ref=e38]:
+    - banner [ref=e39]:
+      - link "POSHinit command deck" [ref=e40] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=e41]: PS
+      - button "Collapse navigation" [ref=e43] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e45]: 󰍜
+      - generic [ref=e46]:
+        - generic [ref=e47]: CONTROL PLANE
+        - generic [aria-hidden] [ref=e48]: 󰅂
+        - strong [ref=e49]: COMMAND DECK
+      - generic [ref=e50]:
+        - button "Refresh data" [ref=e53] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e55]: 󰑐
+        - button [ref=e234] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e58]: 󰭕
+          - generic [aria-hidden] [ref=e61]: 󰅀
+    - complementary [ref=e62]:
+      - navigation "Primary navigation" [ref=e64]:
+        - link [active] [ref=e235] [cursor=pointer]:
+          - /url: /dashboard
+          - generic [aria-hidden] [ref=e66]: 󰨝
+        - link [ref=e236] [cursor=pointer]:
+          - /url: /editor
+          - generic [aria-hidden] [ref=e69]: 󰞷
+        - link [ref=e237] [cursor=pointer]:
+          - /url: /scheduler
+          - generic [aria-hidden] [ref=e72]: 󱛡
+        - link [ref=e238] [cursor=pointer]:
+          - /url: /reports
+          - generic [aria-hidden] [ref=e75]: 󰐰
+        - link [ref=e239] [cursor=pointer]:
+          - /url: /inventory
+          - generic [aria-hidden] [ref=e78]: 󱲙
+        - link [ref=e240] [cursor=pointer]:
+          - /url: /vault
+          - generic [aria-hidden] [ref=e81]: 󰌋
+        - link [ref=e241] [cursor=pointer]:
+          - /url: /teams
+          - generic [aria-hidden] [ref=e84]: 󰭘
+        - link [ref=e242] [cursor=pointer]:
+          - /url: /settings
+          - generic [aria-hidden] [ref=e87]: 󰢻
+      - generic [aria-hidden] [ref=e95]: 󱲚
+    - main [ref=e97]:
+      - text: 󰨝 󰅖
+      - generic [ref=e369]:
+        - generic [ref=e370]:
+          - generic [ref=e372]:
+            - paragraph [ref=e373]: September 4, 2026 Build
+            - heading "PowerShell Operations Mission Deck" [level=3] [ref=e374]
+          - generic [ref=e375]:
+            - generic [ref=e376]:
+              - paragraph [ref=e377]: "This foundation ships the full operator surface area: library, editor, scheduler, reporting, machine inventory, teams, vault, settings, logging, and webhook-triggered execution."
+              - generic [ref=e378]:
+                - generic [ref=e379]: API-first
+                - generic [ref=e381]: Vue + Vuetify
+                - generic [ref=e383]: PowerShell 7.5 ready
+                - generic [ref=e385]: SQLite bootstrap
+            - generic [ref=e387]:
+              - article [ref=e388]:
+                - generic [aria-hidden] [ref=e389]: 󰯃
+                - strong [ref=e390]: "2"
+                - generic [ref=e391]: Scripts
+              - article [ref=e392]:
+                - generic [aria-hidden] [ref=e393]: 󱲙
+                - strong [ref=e394]: "1"
+                - generic [ref=e395]: Machines
+              - article [ref=e396]:
+                - generic [aria-hidden] [ref=e397]: 󱛡
+                - strong [ref=e398]: "1"
+                - generic [ref=e399]: Schedules
+              - article [ref=e400]:
+                - generic [aria-hidden] [ref=e401]: 󰳦
+                - strong [ref=e402]: "0"
+                - generic [ref=e403]: Failures
+        - generic [ref=e404]:
+          - generic [ref=e406]:
+            - generic [ref=e408]:
+              - paragraph [ref=e409]: Drag And Resize
+              - heading "Recent Executions" [level=3] [ref=e410]
+            - generic [ref=e411]:
+              - article [ref=e412]:
+                - strong [ref=e413]: System Snapshot.ps1
+                - generic [ref=e414]: Local Lab Node
+                - generic [ref=e415]: success
+              - article [ref=e417]:
+                - strong [ref=e418]: Personal Diagnostics.ps1
+                - generic [ref=e419]: Local Lab Node
+                - generic [ref=e420]: success
+              - article [ref=e422]:
+                - strong [ref=e423]: Personal Diagnostics.ps1
+                - generic [ref=e424]: Local Lab Node
+                - generic [ref=e425]: success
+          - generic [ref=e429]:
+            - generic [ref=e431]:
+              - paragraph [ref=e432]: Drag And Resize
+              - heading "Upcoming Schedules" [level=3] [ref=e433]
+            - article [ref=e435]:
+              - strong [ref=e436]: Hourly Local Snapshot
+              - generic [ref=e437]: 0 * * * *
+              - generic [ref=e438]: 2026-09-04T22:00:00.000Z
+          - generic [ref=e441]:
+            - generic [ref=e443]:
+              - paragraph [ref=e444]: Drag And Resize
+              - heading "Machine Health" [level=3] [ref=e445]
+            - article [ref=e447]:
+              - strong [ref=e448]: Local Lab Node
+              - generic [ref=e449]: linux / local
+              - generic [ref=e450]: success
+        - generic [ref=e453]:
+          - generic [ref=e454]:
+            - generic [ref=e456]:
+              - paragraph [ref=e457]: Research Additions
+              - heading "Market Comparable Features" [level=3] [ref=e458]
+            - generic [ref=e459]:
+              - article [ref=e460]:
+                - generic [aria-hidden] [ref=e461]: 󰫣
+                - generic [ref=e462]: Approval workflows and delegated self-service runbooks
+              - article [ref=e463]:
+                - generic [aria-hidden] [ref=e464]: 󰫣
+                - generic [ref=e465]: Reusable parameter forms and typed script inputs
+              - article [ref=e466]:
+                - generic [aria-hidden] [ref=e467]: 󰫣
+                - generic [ref=e468]: Script revision history with publish/release states
+              - article [ref=e469]:
+                - generic [aria-hidden] [ref=e470]: 󰫣
+                - generic [ref=e471]: Interactive remote shell and diagnostics replay
+              - article [ref=e472]:
+                - generic [aria-hidden] [ref=e473]: 󰫣
+                - generic [ref=e474]: Notification policies for failure, recovery, and audit export
+              - article [ref=e475]:
+                - generic [aria-hidden] [ref=e476]: 󰫣
+                - generic [ref=e477]: Role-based governance around shared credentials and schedules
+          - generic [ref=e478]:
+            - generic [ref=e480]:
+              - paragraph [ref=e481]: Control Plane Focus
+              - heading "Execution Patterns" [level=3] [ref=e482]
+            - generic [ref=e483]:
+              - article [ref=e484]:
+                - generic [aria-hidden] [ref=e485]: 󰘯
+                - generic [ref=e486]: Webhook-driven ad hoc execution for external orchestrators and CI/CD systems.
+              - article [ref=e487]:
+                - generic [aria-hidden] [ref=e488]: 󰳌
+                - generic [ref=e489]: AES-encrypted credential storage with team-scoped sharing boundaries.
+              - article [ref=e490]:
+                - generic [aria-hidden] [ref=e491]: 󰺯
+                - generic [ref=e492]: Searchable execution and API logs, plus parser-backed syntax validation.
+    - contentinfo [ref=e227]:
+      - generic [ref=e228]: SYSTEM READY
+      - generic [ref=e230]: 1 NODES
+      - generic [ref=e233]: LOCAL API :4000
+  - generic [ref=e368]:
+    - alert
+    - alert

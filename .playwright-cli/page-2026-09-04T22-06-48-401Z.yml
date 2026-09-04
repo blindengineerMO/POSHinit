@@ -1,0 +1,125 @@
+- generic [ref=f11e5]:
+  - banner [ref=f11e6]:
+    - link "POSHinit command deck" [ref=f11e7] [cursor=pointer]:
+      - /url: /dashboard
+      - generic [ref=f11e8]: POSHINIT
+    - button "Collapse navigation" [ref=f11e9] [cursor=pointer]:
+      - generic [aria-hidden] [ref=f11e11]: 󰍜
+    - generic [ref=f11e12]:
+      - generic [ref=f11e13]: CONTROL PLANE
+      - generic [aria-hidden] [ref=f11e14]: 󰅂
+      - strong [ref=f11e15]: ACCESS CONTROL
+    - generic [ref=f11e16]:
+      - generic [ref=f11e17]: API ONLINE
+      - button "Refresh data" [ref=f11e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f11e21]: 󰑐
+      - button "admin@poshinit.local" [ref=f11e22] [cursor=pointer]:
+        - generic [ref=f11e23]:
+          - generic [aria-hidden] [ref=f11e24]: 󰭕
+          - generic [ref=f11e25]: admin@poshinit.local
+        - generic [aria-hidden] [ref=f11e27]: 󰅀
+  - complementary [ref=f11e28]:
+    - paragraph [ref=f11e29]: Automation
+    - navigation "Primary navigation" [ref=f11e30]:
+      - link "Command Deck" [ref=f11e31] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [aria-hidden] [ref=f11e32]: 󰨝
+      - link "Script Studio" [ref=f11e34] [cursor=pointer]:
+        - /url: /editor
+        - generic [aria-hidden] [ref=f11e35]: 󰞷
+      - link "Run Planner" [ref=f11e37] [cursor=pointer]:
+        - /url: /scheduler
+        - generic [aria-hidden] [ref=f11e38]: 󱛡
+      - link "Run Ledger" [ref=f11e40] [cursor=pointer]:
+        - /url: /reports
+        - generic [aria-hidden] [ref=f11e41]: 󰐰
+      - link "Node Inventory" [ref=f11e43] [cursor=pointer]:
+        - /url: /inventory
+        - generic [aria-hidden] [ref=f11e44]: 󱲙
+      - link "Secret Vault" [ref=f11e46] [cursor=pointer]:
+        - /url: /vault
+        - generic [aria-hidden] [ref=f11e47]: 󰌋
+      - link "Access Control" [ref=f11e49] [cursor=pointer]:
+        - /url: /teams
+        - generic [aria-hidden] [ref=f11e50]: 󰭘
+      - link "System Settings" [ref=f11e52] [cursor=pointer]:
+        - /url: /settings
+        - generic [aria-hidden] [ref=f11e53]: 󰢻
+    - generic [ref=f11e55]:
+      - generic [ref=f11e56]: Runtime
+      - generic [ref=f11e57]: PowerShell 7.5
+      - generic [ref=f11e60]:
+        - generic [aria-hidden] [ref=f11e61]: 󱲚
+        - generic [ref=f11e62]: 1 managed nodes
+  - main [ref=f11e63]:
+    - link "Access Control" [ref=f11e65] [cursor=pointer]:
+      - /url: /teams
+      - generic [aria-hidden] [ref=f11e66]: 󰭘
+      - text: Access Control
+      - generic [aria-hidden] [ref=f11e67]: 󰅖
+    - generic [ref=f11e69]:
+      - generic [ref=f11e70]:
+        - generic [ref=f11e71]:
+          - paragraph [ref=f11e72]: Governance
+          - heading "Access Control" [level=2] [ref=f11e73]
+        - generic [ref=f11e74]:
+          - button "Create Team" [ref=f11e75] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f11e77]: 󰭘
+          - button "Add User" [ref=f11e79] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f11e81]: 󰠁
+      - generic [ref=f11e83]:
+        - generic [ref=f11e84]:
+          - paragraph [ref=f11e85]: Identity Plane
+          - strong [ref=f11e86]: 1 local operators / 1 access groups
+        - generic [ref=f11e87]: Shared PowerShell operations inherit team boundaries before credentials, scripts, or schedules can be exposed.
+      - generic [ref=f11e88]:
+        - generic [ref=f11e89]:
+          - generic [ref=f11e91]:
+            - paragraph [ref=f11e92]: Operator Directory
+            - heading "Registered Users" [level=3] [ref=f11e93]
+          - generic [ref=f11e95]:
+            - generic [ref=f11e96]:
+              - paragraph [ref=f11e98]: 1 records
+              - generic [ref=f11e101]:
+                - generic [aria-hidden] [ref=f11e103]: 󰍉
+                - generic [ref=f11e104]:
+                  - generic: Search
+                  - textbox "Search" [ref=f11e105]
+            - table [ref=f11e107]:
+              - rowgroup [ref=f11e108]:
+                - row [ref=f11e109]:
+                  - columnheader [ref=f11e110]:
+                    - button "Name" [ref=f11e111] [cursor=pointer]
+                  - columnheader [ref=f11e112]:
+                    - button "Identity" [ref=f11e113] [cursor=pointer]
+                  - columnheader [ref=f11e114]:
+                    - button "Role" [ref=f11e115] [cursor=pointer]
+                  - columnheader [ref=f11e116]:
+                    - button "State" [ref=f11e117] [cursor=pointer]
+              - rowgroup [ref=f11e118]:
+                - row [ref=f11e119]:
+                  - cell "Matt Powers" [ref=f11e120]
+                  - cell "admin@poshinit.local" [ref=f11e121]
+                  - cell "admin" [ref=f11e122]
+                  - cell "active" [ref=f11e123]
+            - generic [ref=f11e124]:
+              - generic [ref=f11e125]: Page 1 / 1
+              - generic [ref=f11e126]:
+                - button "Prev" [disabled]
+                - button "Next" [disabled]
+        - generic [ref=f11e127]:
+          - generic [ref=f11e129]:
+            - paragraph [ref=f11e130]: Group Registry
+            - heading "Access Teams" [level=3] [ref=f11e131]
+          - article [ref=f11e133]:
+            - generic [aria-hidden] [ref=f11e134]: 󰭘
+            - generic [ref=f11e135]:
+              - strong [ref=f11e136]: Platform Ops
+              - generic [ref=f11e137]: Shared automation and credential access for platform operators.
+            - generic [ref=f11e138]: 1 members
+  - contentinfo [ref=f11e140]:
+    - generic [ref=f11e141]: SYSTEM READY
+    - generic [ref=f11e143]: 1 NODES
+    - generic [ref=f11e144]: 1 SCHEDULES
+    - generic [ref=f11e145]: 4 RECENT RUNS
+    - generic [ref=f11e146]: LOCAL API :4000

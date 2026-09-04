@@ -1,0 +1,205 @@
+import { defineStore } from 'pinia'
+
+const persistedToken = globalThis.localStorage?.getItem('poshinit-token') || ''
+
+export const useAppStore = defineStore('app', {
+  state: () => ({
+    token: persistedToken,
+    currentUser: null,
+    dashboard: {
+      counts: {},
+      recentExecutions: [],
+      upcomingSchedules: [],
+      machineHealth: [],
+    },
+    catalog: {
+      users: [],
+      teams: [],
+      credentials: [],
+      machines: [],
+      groups: [],
+      schedules: [],
+      executions: [],
+      settings: {},
+    },
+    logResults: [],
+    loading: false,
+    lastError: '',
+  }),
+  getters: {
+    isAuthenticated: (state) => Boolean(state.token),
+    personalScripts: (state) =>
+      state.catalog.library?.filter?.((entry) => entry.scope === 'personal') || [],
+    sharedScripts: (state) =>
+      state.catalog.library?.filter?.((entry) => entry.scope === 'shared') || [],
+  },
+  actions: {
+    async api(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+          ...(options.headers || {}),
+        },
+      })
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        const message = payload.error || `Request failed with status ${response.status}`
+        throw new Error(message)
+      }
+
+      if (response.status === 204) {
+        return null
+      }
+
+      return response.json()
+    },
+    async login(email, password) {
+      this.loading = true
+      this.lastError = ''
+
+      try {
+        const payload = await this.api('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        })
+        this.token = payload.token
+        globalThis.localStorage?.setItem('poshinit-token', payload.token)
+        this.currentUser = payload.user
+        await this.bootstrap()
+      } catch (error) {
+        this.lastError = error.message
+        throw error
+      } finally {
+        this.loading = false
+      }
+    },
+    logout() {
+      this.token = ''
+      this.currentUser = null
+      this.catalog = {
+        users: [],
+        teams: [],
+        credentials: [],
+        machines: [],
+        groups: [],
+        schedules: [],
+        executions: [],
+        settings: {},
+      }
+      globalThis.localStorage?.removeItem('poshinit-token')
+    },
+    async bootstrap() {
+      if (!this.token) {
+        return
+      }
+
+      const payload = await this.api('/api/bootstrap')
+      this.currentUser = payload.currentUser
+      this.catalog = payload.catalog
+      this.dashboard = payload.dashboard
+      this.catalog.library = payload.library
+    },
+    async refreshDashboard() {
+      this.dashboard = await this.api('/api/dashboard')
+      this.catalog.executions = this.dashboard.recentExecutions
+    },
+    async saveLibraryEntry(entry) {
+      await this.api('/api/library', {
+        method: 'POST',
+        body: JSON.stringify(entry),
+      })
+      this.catalog.library = await this.api('/api/library')
+    },
+    async deleteLibraryEntry(id) {
+      await this.api(`/api/library/${id}`, { method: 'DELETE' })
+      this.catalog.library = await this.api('/api/library')
+    },
+    async validateScript(content) {
+      return this.api('/api/scripts/validate', {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      })
+    },
+    async saveSchedule(schedule) {
+      await this.api('/api/schedules', {
+        method: 'POST',
+        body: JSON.stringify(schedule),
+      })
+      this.catalog.schedules = await this.api('/api/schedules')
+      await this.refreshDashboard()
+    },
+    async runScripts(payload) {
+      const results = await this.api('/api/executions/run', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      await this.bootstrap()
+      return results
+    },
+    async saveMachine(machine) {
+      await this.api('/api/machines', {
+        method: 'POST',
+        body: JSON.stringify(machine),
+      })
+      this.catalog.machines = await this.api('/api/machines')
+    },
+    async testMachine(machineId) {
+      const result = await this.api(`/api/machines/${machineId}/test`, {
+        method: 'POST',
+      })
+      this.catalog.machines = await this.api('/api/machines')
+      return result
+    },
+    async saveGroup(group) {
+      await this.api('/api/groups', {
+        method: 'POST',
+        body: JSON.stringify(group),
+      })
+      this.catalog.groups = await this.api('/api/groups')
+    },
+    async saveCredential(credential) {
+      await this.api('/api/credentials', {
+        method: 'POST',
+        body: JSON.stringify(credential),
+      })
+      await this.bootstrap()
+    },
+    async saveUser(user) {
+      await this.api('/api/users', {
+        method: 'POST',
+        body: JSON.stringify(user),
+      })
+      this.catalog.users = await this.api('/api/users')
+    },
+    async saveTeam(team) {
+      await this.api('/api/teams', {
+        method: 'POST',
+        body: JSON.stringify(team),
+      })
+      this.catalog.teams = await this.api('/api/teams')
+    },
+    async saveSettings(key, value) {
+      const result = await this.api(`/api/settings/${key}`, {
+        method: 'POST',
+        body: JSON.stringify(value),
+      })
+      this.catalog.settings[key] = result
+      return result
+    },
+    async importVcenter(payload) {
+      const result = await this.api('/api/vcenter/import', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      this.catalog.machines = await this.api('/api/machines')
+      return result
+    },
+    async searchLogs(query) {
+      this.logResults = await this.api(`/api/logs?q=${encodeURIComponent(query || '')}`)
+      return this.logResults
+    },
+  },
+})

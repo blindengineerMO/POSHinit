@@ -1,0 +1,120 @@
+- generic [ref=e1]:
+  - generic [ref=e38]:
+    - banner [ref=e39]:
+      - link "POSHinit command deck" [ref=e40] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=e41]: PS
+        - generic [ref=e42]: POSHINIT
+      - button "Collapse navigation" [ref=e43] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e45]: 󰍜
+      - generic [ref=e46]:
+        - generic [ref=e47]: CONTROL PLANE
+        - generic [aria-hidden] [ref=e48]: 󰅂
+        - strong [ref=e49]: SCRIPT STUDIO
+      - generic [ref=e50]:
+        - generic [ref=e51]: API ONLINE
+        - button "Refresh data" [ref=e53] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e55]: 󰑐
+        - button "admin@poshinit.local" [ref=e493] [cursor=pointer]:
+          - generic [ref=e57]:
+            - generic [aria-hidden] [ref=e58]: 󰭕
+            - generic [ref=e59]: admin@poshinit.local
+          - generic [aria-hidden] [ref=e61]: 󰅀
+    - complementary [ref=e62]:
+      - paragraph [ref=e63]: Automation
+      - navigation "Primary navigation" [ref=e64]:
+        - link "Command Deck" [ref=e494] [cursor=pointer]:
+          - /url: /dashboard
+          - generic [aria-hidden] [ref=e66]: 󰨝
+        - link "Script Studio" [active] [ref=e495] [cursor=pointer]:
+          - /url: /editor
+          - generic [aria-hidden] [ref=e69]: 󰞷
+        - link "Run Planner" [ref=e496] [cursor=pointer]:
+          - /url: /scheduler
+          - generic [aria-hidden] [ref=e72]: 󱛡
+        - link "Run Ledger" [ref=e497] [cursor=pointer]:
+          - /url: /reports
+          - generic [aria-hidden] [ref=e75]: 󰐰
+        - link "Node Inventory" [ref=e498] [cursor=pointer]:
+          - /url: /inventory
+          - generic [aria-hidden] [ref=e78]: 󱲙
+        - link "Secret Vault" [ref=e499] [cursor=pointer]:
+          - /url: /vault
+          - generic [aria-hidden] [ref=e81]: 󰌋
+        - link "Access Control" [ref=e500] [cursor=pointer]:
+          - /url: /teams
+          - generic [aria-hidden] [ref=e84]: 󰭘
+        - link "System Settings" [ref=e501] [cursor=pointer]:
+          - /url: /settings
+          - generic [aria-hidden] [ref=e87]: 󰢻
+      - generic [ref=e89]:
+        - generic [ref=e90]: Runtime
+        - generic [ref=e91]: PowerShell 7.5
+        - generic [ref=e94]:
+          - generic [aria-hidden] [ref=e95]: 󱲚
+          - generic [ref=e96]: 1 managed nodes
+    - main [ref=e97]:
+      - link "Script Studio" [ref=e502] [cursor=pointer]:
+        - /url: /editor
+        - generic [aria-hidden] [ref=e100]: 󰞷
+        - text: Script Studio
+        - generic [aria-hidden] [ref=e101]: 󰅖
+      - generic [ref=e503]:
+        - generic [ref=e504]:
+          - generic [ref=e505]:
+            - paragraph [ref=e506]: Monaco Workspace
+            - heading "VSCode-style PowerShell editor with floating library explorer" [level=2] [ref=e507]
+          - generic [ref=e508]:
+            - button "Open Library" [ref=e509] [cursor=pointer]:
+              - generic [aria-hidden] [ref=e511]: 󰷏
+            - button "Properties" [ref=e513] [cursor=pointer]:
+              - generic [aria-hidden] [ref=e515]: 󰙪
+            - button "Version History" [ref=e517] [cursor=pointer]:
+              - generic [aria-hidden] [ref=e519]: 󰢪
+            - button "Syntax Check" [ref=e521] [cursor=pointer]:
+              - generic [aria-hidden] [ref=e523]: 󱝀
+            - button "Save" [ref=e525] [cursor=pointer]:
+              - generic [aria-hidden] [ref=e527]: 󰠘
+        - generic [ref=e529]:
+          - generic [ref=e531]:
+            - paragraph [ref=e532]: Editor Surface
+            - heading "Script Authoring" [level=3] [ref=e533]
+          - code [ref=e536]:
+            - generic [ref=e537]:
+              - textbox "Editor content"
+              - textbox [aria-hidden] [ref=e538]
+              - generic [ref=e541]: "1"
+              - generic [ref=e544]: Write-Output 'Hello from POSHinit'
+    - contentinfo [ref=e227]:
+      - generic [ref=e228]: SYSTEM READY
+      - generic [ref=e230]: 1 NODES
+      - generic [ref=e231]: 1 SCHEDULES
+      - generic [ref=e232]: 3 RECENT RUNS
+      - generic [ref=e233]: LOCAL API :4000
+  - generic [ref=e368]:
+    - alert
+    - alert
+  - generic [ref=e554]:
+    - generic [ref=e555]:
+      - generic [ref=e556]:
+        - paragraph [ref=e557]: Floating Workspace
+        - heading "Script Library" [level=3] [ref=e558]
+      - button [ref=e559] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e561]: 󰅖
+    - generic [ref=e562]:
+      - generic [ref=e563]:
+        - button "New Script" [ref=e564] [cursor=pointer]
+        - button "New Folder" [ref=e566] [cursor=pointer]
+      - generic [ref=e568]:
+        - button "Personal Diagnostics.ps1 personal" [ref=e569] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e570]: 󰯃
+          - generic [ref=e571]: Personal Diagnostics.ps1
+          - generic [ref=e572]: personal
+        - button "Runbooks shared" [ref=e573] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e574]: 󰉖
+          - generic [ref=e575]: Runbooks
+          - generic [ref=e576]: shared
+        - button "System Snapshot.ps1 shared" [ref=e577] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e578]: 󰯃
+          - generic [ref=e579]: System Snapshot.ps1
+          - generic [ref=e580]: shared
