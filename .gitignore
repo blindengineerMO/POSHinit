@@ -1,8 +1,10 @@
 /data
 .playwright-cli/
-/output
+/output/
+output/playwright
 PLAN.md
 .github
 .claude
 .codex
 *-lock.json
+/node_modules
