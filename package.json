@@ -7,7 +7,7 @@
     "start": "node src/server/index.js",
     "dev": "node src/server/index.js",
     "build": "vite build",
-    "test": "node --test src/server/**/*.test.js"
+    "test": "node --test --test-concurrency=1 src/server/**/*.test.js"
   },
   "keywords": [
     "powershell",

@@ -7,6 +7,7 @@ import DataTable from '../components/common/DataTable.vue'
 import FloatingWindow from '../components/common/FloatingWindow.vue'
 import NeonPanel from '../components/common/NeonPanel.vue'
 import VmwareImportWizard from '../components/inventory/VmwareImportWizard.vue'
+import AzureArcImportWizard from '../components/inventory/AzureArcImportWizard.vue'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
@@ -14,6 +15,7 @@ const machineDialog = ref(false)
 const nodeDialog = ref(false)
 const groupDialog = ref(false)
 const importDialog = ref(false)
+const azureArcImportDialog = ref(false)
 const nodeTab = ref('record')
 const nodeConnectionResult = ref(null)
 const selectedRun = ref(null)
@@ -207,6 +209,7 @@ onBeforeUnmount(closeTerminal)
       </div>
       <div class="chip-line">
         <v-btn prepend-icon="mdi-vmware" variant="text" @click="importDialog = true">Import Virtual Machines</v-btn>
+        <v-btn prepend-icon="mdi-microsoft-azure" variant="text" @click="azureArcImportDialog = true">Import Azure Arc</v-btn>
         <v-btn class="glass-button" prepend-icon="mdi-plus" @click="machineDialog = true">Add Machine</v-btn>
         <v-btn prepend-icon="mdi-folder-network-outline" variant="text" @click="groupDialog = true">Create Group</v-btn>
       </div>
@@ -346,6 +349,7 @@ onBeforeUnmount(closeTerminal)
     </FloatingWindow>
     <FloatingWindow v-model="terminalDialog" :title="`Remote CLI${terminalSession ? ` · ${terminalSession.transport}` : ''}`" :width="760" :start-x="270" :start-y="80"><div class="terminal-window"><div class="terminal-status"><v-icon :icon="terminalSession ? 'mdi-lan-connect' : 'mdi-lan-pending'"/><span>{{ terminalSession ? `Connected through ${terminalSession.transport} · press Enter to run commands` : terminalConnecting ? 'Establishing remote session...' : 'Connection unavailable' }}</span><v-btn size="x-small" variant="text" @click="terminalDialog = false">Disconnect</v-btn></div><div ref="terminalHost" class="xterm-host"/></div></FloatingWindow>
     <VmwareImportWizard v-model="importDialog" />
+    <AzureArcImportWizard v-model="azureArcImportDialog" />
   </div>
 </template>
 

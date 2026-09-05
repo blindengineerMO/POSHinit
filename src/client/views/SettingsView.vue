@@ -9,6 +9,8 @@ const identityWindow = ref(false)
 const runtimeWindow = ref(false)
 const vmwareWindow = ref(false)
 const connectorWindow = ref(false)
+const azureArcWindow = ref(false)
+const azureArcConnectorWindow = ref(false)
 const entraWindow = ref(false)
 const notificationsWindow = ref(false)
 const policyWindow = ref(false)
@@ -17,6 +19,7 @@ const importSummary = ref('')
 const branding = reactive({ productName: store.catalog.settings.branding?.productName || 'POSHinit Control Plane', supportEmail: store.catalog.settings.branding?.supportEmail || 'ops@example.com' })
 const runtime = reactive({ defaultShell: store.catalog.settings.runtime?.defaultShell || 'pwsh', allowManualRuns: store.catalog.settings.runtime?.allowManualRuns ?? true })
 const vmware = reactive({ connectors: [...(store.catalog.settings.vcenter?.connectors || [])] })
+const azureArc = reactive({ connectors: [...(store.catalog.settings.azureArc?.connectors || [])] })
 const entra = reactive({
   tenantId: store.catalog.settings.entra?.tenantId || '',
   clientId: store.catalog.settings.entra?.clientId || '',
@@ -40,6 +43,7 @@ const notifications = reactive({
   notifyOnFailure: store.catalog.settings.notifications?.notifyOnFailure !== false,
 })
 const connectorDraft = reactive({ id: '', kind: 'vcenter', name: '', baseUrl: '', username: '', passwordPlain: '', passwordEncrypted: '', ignoreTlsErrors: false, autoImportGroupId: '' })
+const azureArcDraft = reactive({ id: '', name: '', tenantId: '', clientId: '', clientSecret: '', clientSecretEncrypted: '', subscriptionId: '', autoImportGroupId: '' })
 const isAdmin = computed(() => store.currentUser?.role === 'admin')
 const policyDraft = reactive({ id: '', name: '', enabled: true, window: { days: [], startTime: '', endTime: '', startDate: '', endDate: '' }, eventTypes: ['job.failed'], recipientUserIds: [], teamIds: [], webhookUrl: '' })
 const eventOptions = [
@@ -58,6 +62,8 @@ function editConnector(connector = null) {
   connectorDraft.passwordPlain = ''
   connectorWindow.value = true
 }
+function resetAzureArcConnector() { Object.assign(azureArcDraft, { id: '', name: '', tenantId: '', clientId: '', clientSecret: '', clientSecretEncrypted: '', subscriptionId: '', autoImportGroupId: '' }) }
+function editAzureArcConnector(connector = null) { Object.assign(azureArcDraft, connector || {}); azureArcDraft.clientSecret = ''; azureArcConnectorWindow.value = true }
 
 async function saveIdentity() { await store.saveSettings('branding', branding); identityWindow.value = false }
 async function saveRuntime() { await store.saveSettings('runtime', runtime); runtimeWindow.value = false }
@@ -98,6 +104,20 @@ async function removeConnector(connector) {
   vmware.connectors = vmware.connectors.filter((item) => item.id !== connector.id)
   await saveConnectors()
 }
+async function saveAzureArcConnectors() {
+  const saved = await store.saveSettings('azureArc', azureArc)
+  azureArc.connectors = saved.connectors || []
+}
+async function saveAzureArcConnector() {
+  const index = azureArc.connectors.findIndex((connector) => connector.id === azureArcDraft.id)
+  const draft = { ...azureArcDraft, id: azureArcDraft.id || `draft-${Date.now()}` }
+  if (index >= 0) azureArc.connectors.splice(index, 1, draft)
+  else azureArc.connectors.push(draft)
+  await saveAzureArcConnectors()
+  azureArcConnectorWindow.value = false
+  resetAzureArcConnector()
+}
+async function removeAzureArcConnector(connector) { azureArc.connectors = azureArc.connectors.filter((item) => item.id !== connector.id); await saveAzureArcConnectors() }
 async function importConnector(connector) {
   if (!connector.passwordConfigured) {
     editConnector(connector)
@@ -118,6 +138,7 @@ async function importConnector(connector) {
       <NeonPanel subtitle="Enterprise Identity" title="Microsoft Entra ID"><template #actions><v-btn size="small" variant="text" :disabled="!isAdmin" @click="entraWindow = true">Configure</v-btn></template><div class="setting-card"><v-icon icon="mdi-microsoft"/><strong>{{ entra.tenantId || 'No tenant configured' }}</strong><span>{{ entra.clientSecretConfigured ? 'client secret sealed' : 'client secret not configured' }}</span></div></NeonPanel>
       <NeonPanel subtitle="Run Events" title="Alert Delivery"><template #actions><v-btn size="small" variant="text" :disabled="!isAdmin" @click="notificationsWindow = true">Configure</v-btn></template><div class="setting-card"><v-icon icon="mdi-bell-badge-outline"/><strong>{{ notifications.smtpEnabled || notifications.webhookEnabled ? 'delivery armed' : 'delivery disabled' }}</strong><span>{{ notifications.smtpEnabled ? 'SMTP' : '' }}{{ notifications.smtpEnabled && notifications.webhookEnabled ? ' + ' : '' }}{{ notifications.webhookEnabled ? 'HTTP webhook' : '' }}</span></div></NeonPanel>
       <NeonPanel subtitle="Infrastructure" title="VMware Inventory"><template #actions><v-btn size="small" variant="text" @click="vmwareWindow = true">Manage</v-btn></template><div class="setting-card"><v-icon icon="mdi-server-network-outline"/><strong>{{ vmware.connectors.length }} connectors</strong><span>vCenter REST + standalone ESXi SOAP</span></div></NeonPanel>
+      <NeonPanel subtitle="Hybrid Cloud" title="Azure Arc Inventory"><template #actions><v-btn size="small" variant="text" :disabled="!isAdmin" @click="azureArcWindow = true">Manage</v-btn></template><div class="setting-card"><v-icon icon="mdi-microsoft-azure"/><strong>{{ azureArc.connectors.length }} connectors</strong><span>ARM inventory + service principal</span></div></NeonPanel>
     </div>
     <NeonPanel subtitle="Security Posture" title="Runtime Protections"><div class="protection-list"><article><v-icon icon="mdi-shield-check-outline" color="success"/>Helmet headers and configurable CORS protect the Express host.</article><article><v-icon icon="mdi-database-lock-outline" color="info"/>SQLite queries use parameterized access paths.</article><article><v-icon icon="mdi-key-chain-variant" color="secondary"/>Vault payloads are sealed through AES-256-GCM.</article></div></NeonPanel>
     <NeonPanel subtitle="Event Routing" title="Notification Policies"><template #actions><v-btn size="small" class="glass-button" prepend-icon="mdi-bell-plus-outline" :disabled="!isAdmin" @click="openPolicy()">Create Policy</v-btn></template><div class="policy-list"><article v-for="policy in policies" :key="policy.id" class="policy-card"><v-icon :color="policy.enabled ? 'success' : undefined" :icon="policy.enabled ? 'mdi-bell-check-outline' : 'mdi-bell-off-outline'"/><div><strong>{{ policy.name }}</strong><span>{{ policy.eventTypes.join(' · ') }}</span><small>{{ policy.recipientUserIds.length }} people · {{ policy.teamIds.length }} teams{{ policy.webhookUrl ? ' · webhook' : '' }}</small></div><div class="policy-actions"><v-btn size="small" variant="text" @click="togglePolicy(policy)">{{ policy.enabled ? 'Disable' : 'Enable' }}</v-btn><v-btn size="small" variant="text" @click="testPolicy(policy)">Test</v-btn><v-btn size="small" icon="mdi-pencil-outline" variant="text" @click="openPolicy(policy)"/><v-btn size="small" icon="mdi-delete-outline" variant="text" @click="removePolicy(policy)"/></div></article><p v-if="!policies.length" class="empty-state">No notification policies exist. Create one to route selected events to people, teams, or a webhook.</p></div></NeonPanel>
@@ -131,6 +152,8 @@ async function importConnector(connector) {
     <FloatingWindow v-model="vmwareWindow" title="VMware Inventory Connectors" :width="700" :start-x="220" :start-y="90"><div class="connector-window"><div class="connector-header"><p>Register vCenter servers and standalone ESXi hosts side by side. vCenter uses its REST inventory API; host-only environments use the native VMware SOAP API at <code>/sdk</code>.</p><v-btn class="glass-button" prepend-icon="mdi-plus" @click="resetConnector(); connectorWindow = true">Add Connector</v-btn></div><article v-for="connector in vmware.connectors" :key="connector.id" class="connector-card"><span class="connector-icon"><v-icon :icon="connector.kind === 'esxi-host' ? 'mdi-server' : 'mdi-cloud-outline'"/></span><div><strong>{{ connector.name }}</strong><span>{{ connector.kind === 'esxi-host' ? 'Standalone ESXi host / SOAP' : 'vCenter / REST' }} · {{ connector.baseUrl }}</span><small>{{ connector.username || 'No account configured' }}</small></div><div class="connector-actions"><v-btn size="small" variant="text" @click="importConnector(connector)">Import VMs</v-btn><v-btn size="small" icon="mdi-pencil-outline" variant="text" @click="editConnector(connector)"/><v-btn size="small" icon="mdi-delete-outline" variant="text" @click="removeConnector(connector)"/></div></article><p v-if="!vmware.connectors.length" class="empty-state">No VMware connectors registered. Add a vCenter or standalone ESXi host to begin inventory import.</p><v-alert v-if="importSummary" type="info" variant="tonal">{{ importSummary }}</v-alert><div class="actions"><v-btn variant="text" @click="vmwareWindow = false">Close</v-btn></div></div></FloatingWindow>
 
     <FloatingWindow v-model="connectorWindow" :title="connectorDraft.id ? 'Edit VMware Connector' : 'Add VMware Connector'" :width="560" :start-x="420" :start-y="145"><form class="window-form two" @submit.prevent="saveConnector"><v-select v-model="connectorDraft.kind" :items="[{ title: 'vCenter Server (REST)', value: 'vcenter' }, { title: 'Standalone ESXi Host (SOAP)', value: 'esxi-host' }]" label="Endpoint type" class="full"/><v-text-field v-model="connectorDraft.name" label="Connector name"/><v-text-field v-model="connectorDraft.baseUrl" :label="connectorDraft.kind === 'esxi-host' ? 'ESXi host URL or hostname' : 'vCenter base URL'"/><v-text-field v-model="connectorDraft.username" label="Username"/><v-text-field v-model="connectorDraft.passwordPlain" type="password" label="Password" hint="Leave empty to retain the sealed password." persistent-hint/><v-switch v-model="connectorDraft.ignoreTlsErrors" color="warning" density="compact" label="Ignore self-signed certificate / TLS errors" hint="Use only for trusted vCenter or ESXi endpoints with self-signed certificates." persistent-hint class="full"/><v-select v-model="connectorDraft.autoImportGroupId" :items="store.catalog.groups" item-title="name" item-value="id" label="Auto-assign deployment group" class="full"/><v-alert type="info" variant="tonal" class="full">{{ connectorDraft.kind === 'esxi-host' ? 'Connects directly to the host /sdk SOAP service. No vCenter is required.' : 'Uses the vCenter REST inventory endpoint.' }}</v-alert><div class="actions full"><v-btn variant="text" @click="connectorWindow = false">Cancel</v-btn><v-btn class="glass-button" type="submit">Save Connector</v-btn></div></form></FloatingWindow>
+    <FloatingWindow v-model="azureArcWindow" title="Azure Arc Inventory Connectors" :width="700" :start-x="250" :start-y="105"><div class="connector-window"><div class="connector-header"><p>Connect a Microsoft Entra application to Azure Resource Manager and discover Azure Arc-enabled servers in a selected subscription. Inventory access is read-only.</p><v-btn class="glass-button" prepend-icon="mdi-plus" @click="resetAzureArcConnector(); azureArcConnectorWindow = true">Add Connector</v-btn></div><article v-for="connector in azureArc.connectors" :key="connector.id" class="connector-card azure-connector"><span class="connector-icon"><v-icon icon="mdi-microsoft-azure"/></span><div><strong>{{ connector.name }}</strong><span>Subscription {{ connector.subscriptionId || 'not configured' }}</span><small>{{ connector.tenantId || 'No tenant configured' }} · {{ connector.clientSecretConfigured ? 'client secret sealed' : 'secret required' }}</small></div><div class="connector-actions"><v-btn size="small" icon="mdi-pencil-outline" variant="text" @click="editAzureArcConnector(connector)"/><v-btn size="small" icon="mdi-delete-outline" variant="text" @click="removeAzureArcConnector(connector)"/></div></article><p v-if="!azureArc.connectors.length" class="empty-state">No Azure Arc connectors registered. Add an app registration with Azure Reader access to a subscription.</p><div class="actions"><v-btn variant="text" @click="azureArcWindow = false">Close</v-btn></div></div></FloatingWindow>
+    <FloatingWindow v-model="azureArcConnectorWindow" :title="azureArcDraft.id ? 'Edit Azure Arc Connector' : 'Add Azure Arc Connector'" :width="600" :start-x="390" :start-y="125"><form class="window-form two" @submit.prevent="saveAzureArcConnector"><section class="entra-intro full"><div><p class="section-eyebrow">Azure Resource Manager</p><strong>Read-only Azure Arc inventory</strong></div><v-icon icon="mdi-microsoft-azure"/></section><v-text-field v-model="azureArcDraft.name" label="Connector name"/><v-text-field v-model="azureArcDraft.subscriptionId" label="Subscription ID"/><v-text-field v-model="azureArcDraft.tenantId" label="Tenant ID or domain"/><v-text-field v-model="azureArcDraft.clientId" label="Application (client) ID"/><v-text-field v-model="azureArcDraft.clientSecret" type="password" :label="azureArcDraft.clientSecretConfigured ? 'Replace client secret (optional)' : 'Client secret'" :hint="azureArcDraft.clientSecretConfigured ? 'Leave blank to retain the sealed secret.' : 'Create this under Certificates & secrets in the app registration.'" persistent-hint class="full"/><v-select v-model="azureArcDraft.autoImportGroupId" :items="store.catalog.groups" item-title="name" item-value="id" label="Auto-assign deployment group" class="full"/><v-alert type="info" variant="tonal" density="compact" class="full">Assign the app registration the Azure Reader role at the selected subscription or a narrower Arc-capable scope. The secret is encrypted before storage and never returned to this browser.</v-alert><div class="actions full"><v-btn variant="text" @click="azureArcConnectorWindow = false">Cancel</v-btn><v-btn class="glass-button" type="submit">Save Azure Arc Connector</v-btn></div></form></FloatingWindow>
   </div>
 </template>
 

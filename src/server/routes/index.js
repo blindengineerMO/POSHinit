@@ -16,6 +16,7 @@ import { getScheduleWebhook, getScheduleWebhookStatus, getWebhookSchedule, listS
 import { listTeams, saveTeam } from '../services/teamService.js'
 import { listUsers, saveUser } from '../services/userService.js'
 import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, importVmwareSelection, saveVcenterSettings } from '../services/vcenterService.js'
+import { discoverAzureArcMachines, importAzureArcSelection, saveAzureArcSettings } from '../services/azureArcService.js'
 import { validatePowerShell } from '../services/powershellService.js'
 import { connectTerminal, disconnectTerminal, runTerminalCommand } from '../services/terminalService.js'
 import { encryptSecret } from '../utils/crypto.js'
@@ -255,7 +256,7 @@ export function createRouter() {
   })
 
   router.get('/api/settings', (_req, res) => {
-    res.json(getSettings())
+    res.json(getCatalog().settings)
   })
 
   router.post('/api/settings/:key', (req, res) => {
@@ -280,6 +281,11 @@ export function createRouter() {
     if (req.params.key === 'vcenter') {
       res.json(saveVcenterSettings(req.body))
       return
+    }
+
+    if (req.params.key === 'azureArc') {
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Azure Arc' })
+      return res.json(saveAzureArcSettings(req.body))
     }
 
     res.json(saveSettings(req.params.key, req.body))
@@ -333,6 +339,16 @@ export function createRouter() {
         req.body.credentialIds,
       ),
     )
+  })
+
+  router.post('/api/azure-arc/discover', async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can discover Azure Arc machines' })
+    return res.json(await discoverAzureArcMachines(getSettings().azureArc, req.body.connectorId))
+  })
+
+  router.post('/api/azure-arc/import-selection', async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can import Azure Arc machines' })
+    return res.json(await importAzureArcSelection(getSettings().azureArc, req.body.connectorId, req.body.machineIds, req.body.credentialIds))
   })
 
   router.get('/api/logs', (req, res) => {

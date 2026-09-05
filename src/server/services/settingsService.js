@@ -48,7 +48,7 @@ function publicNotificationSettings(value = {}) {
 }
 
 export function getSettings() {
-  const settings = ['branding', 'vcenter', 'runtime'].reduce((accumulator, key) => {
+  const settings = ['branding', 'vcenter', 'azureArc', 'runtime'].reduce((accumulator, key) => {
     accumulator[key] = readSetting(key)
     return accumulator
   }, {})

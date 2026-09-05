@@ -255,6 +255,9 @@ function seedSettings() {
     vcenter: {
       connectors: [],
     },
+    azureArc: {
+      connectors: [],
+    },
     notifications: {
       defaultChannel: 'log',
       notifyOnFailure: true,

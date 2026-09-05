@@ -101,6 +101,14 @@ export function getCatalog() {
     })),
   }
 
+  settings.azureArc = {
+    ...(settings.azureArc || {}),
+    connectors: (settings.azureArc?.connectors || []).map(({ clientSecretEncrypted, ...connector }) => ({
+      ...connector,
+      clientSecretConfigured: Boolean(clientSecretEncrypted && decryptSecret(clientSecretEncrypted)),
+    })),
+  }
+
   return {
     users,
     teams,

@@ -285,6 +285,20 @@ export const useAppStore = defineStore('app', {
       this.catalog.machines = await this.api('/api/machines')
       return result
     },
+    async discoverAzureArc(connectorId) {
+      return this.api('/api/azure-arc/discover', {
+        method: 'POST',
+        body: JSON.stringify({ connectorId }),
+      })
+    },
+    async importAzureArcSelection(connectorId, machineIds, credentialIds) {
+      const result = await this.api('/api/azure-arc/import-selection', {
+        method: 'POST',
+        body: JSON.stringify({ connectorId, machineIds, credentialIds }),
+      })
+      this.catalog.machines = await this.api('/api/machines')
+      return result
+    },
     async searchLogs(query) {
       this.logResults = await this.api(`/api/logs?q=${encodeURIComponent(query || '')}`)
       return this.logResults

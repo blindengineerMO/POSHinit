@@ -19,6 +19,10 @@ This repository now contains a runnable greenfield foundation with:
 - Reporting and searchable logs
 - Local authentication plus Microsoft Entra ID enterprise sign-in with tenant-managed MFA
 - VMware connector registry for vCenter REST and standalone ESXi SOAP inventory import
+- Azure Arc connector registry for subscription-scoped Arc-enabled server inventory import
+- SMTP and HTTP(S) webhook delivery for completed job alerts
+- Notification policies for routed system, script, and job events
+- xterm.js-powered node CLI and generated RDP connection files
 - Webhook-triggered execution with a shared secret
 - Per-schedule webhook endpoints with independent path keys and header tokens
 
@@ -32,6 +36,8 @@ This repository now contains a runnable greenfield foundation with:
 - `Pinia`
 - `Vue Router`
 - `Monaco Editor`
+- `Nodemailer`
+- `xterm.js` with the Fit addon
 
 ## Quick Start
 
@@ -90,9 +96,17 @@ npm test
 
 ## Microsoft Entra ID
 
-Enterprise sign-in uses the Microsoft Authentication Library (MSAL) for Node with the authorization-code flow and PKCE. Configure a **Web** redirect URI in the Microsoft Entra app registration that exactly matches `ENTRA_REDIRECT_URI`; for a local deployment the default is `http://localhost:4000/auth/entra/callback`. Set the tenant ID, client ID, and client secret as server environment variables, then restart POSHinit.
+Enterprise sign-in uses the Microsoft Authentication Library (MSAL) for Node with the authorization-code flow and PKCE. Administrators can configure the tenant ID, client ID, client secret, and redirect URI in **System Settings > Microsoft Entra ID**. The client secret is sealed at rest and is never returned to the browser. The `ENTRA_*` environment variables remain available as deployment-time fallback configuration.
+
+Configure a **Web** redirect URI in the Microsoft Entra app registration that exactly matches the configured redirect URI; for a local deployment the default is `http://localhost:4000/auth/entra/callback`.
 
 An Entra-authenticated identity does not create an operator automatically. In **Access Control**, create or edit the operator, enable **Allow enterprise sign-in**, and enter the Entra UPN/email returned at sign-in. Entra tenant policy controls MFA and Conditional Access. The system audit log records local and enterprise sign-in successes, failed attempts, enterprise callback failures, and sign-outs.
+
+### SMTP And Webhook Job Alerts
+
+Administrators configure delivery in **System Settings > Alert Delivery**. Enable SMTP, provide the host, port, optional credentials, sender, and comma-separated recipients, then select whether successful runs, failed runs, or both produce alerts. An optional global HTTP(S) webhook receives the same structured job-result event.
+
+SMTP passwords are sealed at rest. Job alerts contain execution metadata and a short failure summary only; script content, resolved vault secrets, and full command output are intentionally excluded.
 
 ## High-Level Architecture
 
@@ -132,6 +146,25 @@ An Entra-authenticated identity does not create an operator automatically. In **
 - Per-machine credential assignment
 - Test connection action with a PowerShell hello-world validation
 - PowerShell Remoting execution through WinRM, using `Invoke-Command` and sealed credentials
+- Node actions for a browser-hosted CLI and RDP file download
+
+### Node CLI And RDP
+
+The **Node Inventory** action menu can generate a standard `.rdp` file for a selected Windows node; open the file with an RDP client and authenticate using an appropriate remote account. The same menu opens an xterm.js floating CLI workspace.
+
+For remote nodes, CLI connection attempts PowerShell Remoting first. If that attempt fails for a Linux node, POSHinit tries SSH as a fallback. Local nodes use the server's installed PowerShell and Bash hosts. Commands remain available until the operator selects **Disconnect** or closes the terminal window, and connection attempts, command failures, and disconnects are recorded in the application log.
+
+### Azure Arc Inventory
+
+Administrators configure one or more Azure Arc connectors in **System Settings > Azure Arc Inventory**. Each connector uses a Microsoft Entra application client ID, client secret, tenant ID, and Azure subscription ID. The secret is sealed at rest and is never returned to the browser.
+
+In **Node Inventory**, select **Import Azure Arc** to open the floating three-step wizard:
+
+- Discover Arc-enabled servers from `Microsoft.HybridCompute/machines` across the selected subscription, including paginated results.
+- Choose nodes and assign a PowerShell Remoting credential for each target.
+- Import the selected records and run connectivity tests before completing the wizard.
+
+The integration is inventory-only: it does not deploy Arc extensions, execute Azure Run Command, or modify Azure resources. Assign the app registration the Azure `Reader` role at the subscription scope or a narrower scope that includes the Arc machine resources. Azure Arc requires the `Microsoft.HybridCompute` resource provider to be registered in the subscription.
 
 ### Secret Templates
 
@@ -162,10 +195,18 @@ $apiToken = {{secret:GitHub Automation.token}}
 ### Reporting And Logs
 
 - Execution history
-- SMTP and HTTP(S) webhook alerts for successful and failed job runs
 - Friendly execution summary payloads
 - Captured stdout and stderr
 - Searchable application and execution logs
+
+### Notification Policies
+
+**System Settings > Notification Policies** opens a floating policy editor and inventory. A policy can be enabled, disabled, tested, edited, or deleted, and controls when event notifications are allowed and where they are sent.
+
+- Restrict delivery by date range, days of the week, and time window.
+- Select job success or failure, authentication success or failure, and script edit or delete events.
+- Deliver to individual operator email addresses, all active members of selected teams, and/or a policy-specific HTTP(S) webhook.
+- Email and webhook payloads include a direct link to the relevant event details when `PUBLIC_APP_URL` is configured.
 
 ## API Overview
 
@@ -249,6 +290,31 @@ curl -X POST "$WEBHOOK_URL" \
 
 `POST` accepts an empty request body and does not alter the schedule's normal next-run time. `GET` returns schedule state, whether an execution is running, and the latest execution status. Treat both the random URL and token as secrets; never put them in public monitoring dashboards or source control.
 
+### Node Terminal
+
+- `POST /api/machines/:id/terminal/connect`
+- `POST /api/terminal/:sessionId/command`
+- `POST /api/terminal/:sessionId/disconnect`
+
+These authenticated endpoints back the Node Inventory CLI. Connecting returns a temporary terminal session identifier and selected transport. Send a command body to the command endpoint, then explicitly disconnect when the interactive workspace is no longer needed.
+
+### Notification Policies
+
+- `GET /api/notification-policies`
+- `POST /api/notification-policies`
+- `POST /api/notification-policies/:id/enabled`
+- `POST /api/notification-policies/:id/test`
+- `DELETE /api/notification-policies/:id`
+
+All notification policy endpoints require an administrator bearer token.
+
+### Azure Arc Import
+
+- `POST /api/azure-arc/discover`
+- `POST /api/azure-arc/import-selection`
+
+Both endpoints require an administrator bearer token and an Azure Arc connector ID. Discovery obtains an Azure Resource Manager client-credentials token and reads the selected subscription's Arc machine inventory.
+
 ### VMware Import
 
 - `POST /api/vmware/import`
@@ -262,11 +328,14 @@ curl -X POST http://localhost:4000/api/vmware/import \
   -d '{"connectorId":"VMWARE_CONNECTOR_ID"}'
 ```
 
+VMware connectors are configured in **System Settings > VMware Inventory**. Add vCenter servers for REST discovery and/or standalone ESXi hosts for native `/sdk` SOAP discovery. The connector editor includes an **Ignore self-signed certificate / TLS errors** switch for trusted lab or internal endpoints; it applies only to that connector and should not be enabled for untrusted infrastructure.
+
 ## Current Constraints
 
-- Local and PowerShell Remoting targets can run through manual, scheduled, and webhook execution. SSH remains available for connection testing only.
+- Local and PowerShell Remoting targets can run through manual, scheduled, and webhook execution. SSH is available for connection testing and as a Linux-only fallback transport in the interactive Node Inventory CLI; it is not a scheduled execution transport.
 - PowerShell Remoting targets need WinRM and PS Remoting enabled (for example, `Enable-PSRemoting`) and a matching `psremoting` credential. Port `5985` uses HTTP; port `5986` opts into WinRM HTTPS.
 - VMware inventory import supports vCenter REST endpoints and standalone ESXi hosts through the native `/sdk` SOAP API; deeper VM action workflows are not yet implemented.
+- Azure Arc discovery imports only Arc-enabled server resource metadata. Imported targets still need a directly reachable WinRM endpoint and matching PowerShell Remoting credential for POSHinit execution.
 - Entra ID uses an in-memory, short-lived PKCE and callback ticket store. Run a shared session store before deploying more than one application instance.
 
 ## Security Notes
@@ -276,8 +345,10 @@ curl -X POST http://localhost:4000/api/vmware/import \
 - Script templates are expanded only in the running process. The original script is retained, but intentionally printing an injected value can still disclose it through execution output.
 - SQL statements are parameterized through prepared statements in the SQLite wrapper.
 - Webhook execution requires the shared secret from `WEBHOOK_SECRET`.
-- Entra client secrets stay server-side in environment configuration; never place them in the browser or a checked-in `.env` file.
+- Entra client secrets can be sealed in system settings or supplied by server environment configuration; never place them in the browser or a checked-in `.env` file.
 - SMTP passwords are sealed in settings; alert payloads intentionally omit script content, resolved secrets, and full run output.
+- The VMware TLS bypass applies only to a connector that explicitly enables it. Use it only for trusted endpoints with self-signed certificates.
+- Azure Arc client credentials are used only from the server to acquire Azure Resource Manager tokens. Grant the connector application least-privilege Azure RBAC, normally `Reader` for inventory discovery.
 
 ## Recommended Next Work
 
@@ -285,5 +356,5 @@ curl -X POST http://localhost:4000/api/vmware/import \
 - Add richer parameter schemas per script and per schedule
 - Add SSH-based scheduled remote execution fan-out
 - Add a shared Entra PKCE/session store for multi-instance deployments and deeper RBAC controls
-- Add notification channels and retention controls
-- Add file upload browsing and image asset preview in the library
+- Add notification retention controls and delivery retry visibility
+- Add streamed terminal output and long-running process support
