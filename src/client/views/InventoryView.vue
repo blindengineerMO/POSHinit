@@ -1,13 +1,15 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import DataTable from '../components/common/DataTable.vue'
 import FloatingWindow from '../components/common/FloatingWindow.vue'
 import NeonPanel from '../components/common/NeonPanel.vue'
+import VmwareImportWizard from '../components/inventory/VmwareImportWizard.vue'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
 const machineDialog = ref(false)
 const groupDialog = ref(false)
+const importDialog = ref(false)
 const connectionResult = ref(null)
 const connectionDialog = computed({
   get: () => Boolean(connectionResult.value),
@@ -24,8 +26,8 @@ const machineDraft = reactive({
   ipAddress: '',
   notes: '',
   osFamily: 'linux',
-  transport: 'local',
-  port: 22,
+  transport: 'psremoting',
+  port: 5985,
   credentialId: '',
 })
 
@@ -35,7 +37,19 @@ const groupDraft = reactive({
   machineIds: [],
 })
 
-const credentialOptions = computed(() => store.catalog.credentials || [])
+const transportOptions = [
+  { title: 'PowerShell Remoting (recommended)', value: 'psremoting' },
+  { title: 'SSH', value: 'ssh' },
+  { title: 'Local host', value: 'local' },
+]
+const credentialOptions = computed(() => (store.catalog.credentials || []).filter((credential) =>
+  machineDraft.transport === 'local' || credential.protocol === machineDraft.transport,
+))
+
+watch(() => machineDraft.transport, (transport) => {
+  machineDraft.port = transport === 'psremoting' ? 5985 : transport === 'ssh' ? 22 : 0
+  machineDraft.credentialId = ''
+})
 
 async function saveMachine() {
   await store.saveMachine(machineDraft)
@@ -60,6 +74,7 @@ async function testConnection(machineId) {
         <h2 class="page-title">Inventory, grouping, credentials, and connection testing</h2>
       </div>
       <div class="chip-line">
+        <v-btn prepend-icon="mdi-vmware" variant="text" @click="importDialog = true">Import Virtual Machines</v-btn>
         <v-btn class="glass-button" prepend-icon="mdi-plus" @click="machineDialog = true">Add Machine</v-btn>
         <v-btn prepend-icon="mdi-folder-network-outline" variant="text" @click="groupDialog = true">Create Group</v-btn>
       </div>
@@ -109,7 +124,7 @@ async function testConnection(machineId) {
         <v-text-field v-model="machineDraft.fqdn" label="Hostname / FQDN" />
         <v-text-field v-model="machineDraft.ipAddress" label="IP address" />
         <v-select v-model="machineDraft.osFamily" :items="['linux', 'windows']" label="Operating system" />
-        <v-select v-model="machineDraft.transport" :items="['local', 'ssh']" label="Transport" />
+        <v-select v-model="machineDraft.transport" :items="transportOptions" label="Transport" />
         <v-text-field v-model="machineDraft.port" type="number" label="Port" />
         <v-select
           v-model="machineDraft.credentialId"
@@ -118,6 +133,9 @@ async function testConnection(machineId) {
           item-value="id"
           label="Credential"
         />
+        <v-alert v-if="machineDraft.transport === 'psremoting'" type="info" variant="tonal" density="compact">
+          Preferred for Windows targets. Enable PS Remoting/WinRM on the target first. Use 5985 for HTTP or 5986 for HTTPS.
+        </v-alert>
         <v-textarea v-model="machineDraft.notes" label="Notes" rows="3" />
         <v-btn class="glass-button" prepend-icon="mdi-content-save-outline" @click="saveMachine">Save Machine</v-btn>
       </div>
@@ -149,6 +167,7 @@ async function testConnection(machineId) {
         <pre class="output-block error-block">{{ connectionResult.stderr || 'No stderr output.' }}</pre>
       </div>
     </FloatingWindow>
+    <VmwareImportWizard v-model="importDialog" />
   </div>
 </template>
 

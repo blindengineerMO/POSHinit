@@ -29,6 +29,43 @@ function runPwsh(args, content) {
   })
 }
 
+function toBase64(value) {
+  return Buffer.from(String(value ?? ''), 'utf8').toString('base64')
+}
+
+export function buildPsRemotingScript({ target, port = 5985, username, password, content }) {
+  const encoded = {
+    target: toBase64(target),
+    username: toBase64(username),
+    password: toBase64(password),
+    content: toBase64(content),
+  }
+  const useSsl = Number(port) === 5986 ? '$true' : '$false'
+
+  // Send all sensitive values on stdin, not as child-process arguments.
+  return `
+$ErrorActionPreference = 'Stop'
+function Read-PoshinitValue([string]$Value) {
+  [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Value))
+}
+$target = Read-PoshinitValue '${encoded.target}'
+$username = Read-PoshinitValue '${encoded.username}'
+$password = Read-PoshinitValue '${encoded.password}'
+$scriptContent = Read-PoshinitValue '${encoded.content}'
+$securePassword = ConvertTo-SecureString -String $password -AsPlainText -Force
+$credential = [PSCredential]::new($username, $securePassword)
+$invokeParameters = @{
+  ComputerName = $target
+  Port = ${Number(port) || 5985}
+  Credential = $credential
+  ScriptBlock = [ScriptBlock]::Create($scriptContent)
+  ErrorAction = 'Stop'
+}
+if (${useSsl}) { $invokeParameters.UseSSL = $true }
+Invoke-Command @invokeParameters
+`
+}
+
 export async function validatePowerShell(content) {
   const wrapped = `
 $errors = $null
@@ -52,4 +89,11 @@ $errors | Select-Object Message, Extent | ConvertTo-Json -Depth 4
 
 export async function executeLocalPowerShell(content) {
   return runPwsh(['-NoProfile', '-Command', '-'], content)
+}
+
+export async function executePsRemoting({ target, port, username, password, content }) {
+  return runPwsh(
+    ['-NoProfile', '-NonInteractive', '-Command', '-'],
+    buildPsRemotingScript({ target, port, username, password, content }),
+  )
 }

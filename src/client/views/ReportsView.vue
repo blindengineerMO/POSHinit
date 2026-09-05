@@ -4,6 +4,7 @@ import DataTable from '../components/common/DataTable.vue'
 import FloatingWindow from '../components/common/FloatingWindow.vue'
 import NeonPanel from '../components/common/NeonPanel.vue'
 import { useAppStore } from '../stores/app'
+import { downloadExecutionReport } from '../utils/executionReport'
 
 const store = useAppStore()
 const detailOpen = ref(false)
@@ -17,6 +18,10 @@ function openExecution(row) {
 
 async function searchLogs() {
   await store.searchLogs(logQuery.value)
+}
+
+async function exportExecution(row) {
+  await downloadExecutionReport(row)
 }
 </script>
 
@@ -32,10 +37,14 @@ async function searchLogs() {
             { key: 'status', label: 'Status' },
             { key: 'started_at', label: 'Started' },
             { key: 'exit_code', label: 'Exit' },
+            { key: 'actions', label: 'Report' },
           ]"
         >
           <template #script_name="{ row }">
             <button class="link-button" type="button" @click="openExecution(row)">{{ row.script_name }}</button>
+          </template>
+          <template #actions="{ row }">
+            <v-btn size="x-small" variant="text" prepend-icon="mdi-file-pdf-box" @click="exportExecution(row)">PDF</v-btn>
           </template>
         </DataTable>
       </div>
@@ -62,6 +71,10 @@ async function searchLogs() {
 
     <FloatingWindow v-model="detailOpen" title="Execution Detail" :width="560" :start-x="320" :start-y="132">
       <div v-if="selectedExecution" class="detail-grid">
+        <div class="detail-actions">
+          <span class="muted">Download the complete execution ledger, including output streams.</span>
+          <v-btn class="glass-button" size="small" prepend-icon="mdi-file-pdf-box" @click="exportExecution(selectedExecution)">Download PDF Report</v-btn>
+        </div>
         <div class="kv-grid">
           <div>
             <p class="section-eyebrow">Script</p>
@@ -137,5 +150,24 @@ async function searchLogs() {
 .detail-grid {
   display: grid;
   gap: 16px;
+}
+
+.detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(40, 211, 255, .2);
+  border-radius: 14px;
+  background: rgba(40, 211, 255, .05);
+  font-size: .75rem;
+}
+
+@media (max-width: 560px) {
+  .detail-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

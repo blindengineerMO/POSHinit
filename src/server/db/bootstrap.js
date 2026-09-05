@@ -210,11 +210,7 @@ function seedSettings() {
       supportEmail: 'ops@example.com',
     },
     vcenter: {
-      baseUrl: '',
-      username: '',
-      passwordEncrypted: encryptSecret(''),
-      verifyTls: false,
-      autoImportGroupId: '',
+      connectors: [],
     },
     notifications: {
       defaultChannel: 'log',

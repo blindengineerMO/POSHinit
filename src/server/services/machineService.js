@@ -3,7 +3,9 @@ import { Client as SshClient } from 'ssh2'
 import { nanoid } from 'nanoid'
 import { all, get, nowIso, run } from '../db/client.js'
 import { decryptSecret } from '../utils/crypto.js'
-import { executeLocalPowerShell } from './powershellService.js'
+import { executeLocalPowerShell, executePsRemoting } from './powershellService.js'
+
+const supportedTransports = new Set(['local', 'ssh', 'psremoting'])
 
 export function listMachines() {
   return all(
@@ -15,6 +17,11 @@ export function listMachines() {
 }
 
 export function saveMachine(payload) {
+  const transport = payload.transport || 'local'
+  if (!supportedTransports.has(transport)) {
+    throw new Error(`Unsupported transport: ${transport}`)
+  }
+
   const machineId = payload.id || nanoid()
   const timestamp = nowIso()
   const existing = payload.id ? get('SELECT created_at FROM machines WHERE id = ?', [payload.id]) : null
@@ -46,8 +53,8 @@ export function saveMachine(payload) {
       ipAddress: payload.ipAddress || '',
       notes: payload.notes || '',
       osFamily: payload.osFamily || 'linux',
-      transport: payload.transport || 'local',
-      port: Number(payload.port || 22),
+      transport,
+      port: Number(payload.port || (transport === 'psremoting' ? 5985 : 22)),
       credentialId: payload.credentialId || null,
       sourceType: payload.sourceType || 'manual',
       sourceRef: payload.sourceRef || '',
@@ -65,6 +72,14 @@ function getMachineCredential(machine) {
   }
 
   return get('SELECT * FROM credentials WHERE id = ?', [machine.credential_id])
+}
+
+function remoteUsername(credential) {
+  if (!credential.domain_name || credential.username.includes('\\') || credential.username.includes('@')) {
+    return credential.username
+  }
+
+  return `${credential.domain_name}\\${credential.username}`
 }
 
 function runOverSsh(machine, credential, command) {
@@ -116,6 +131,22 @@ export async function testMachineConnection(machineId) {
   let result
   if (machine.transport === 'local') {
     result = await executeLocalPowerShell("Write-Output 'Hello from local POSHinit node'")
+  } else if (machine.transport === 'psremoting') {
+    const credential = getMachineCredential(machine)
+    if (!credential) {
+      throw new Error('Machine is missing a PowerShell remoting credential')
+    }
+    if (credential.protocol !== 'psremoting') {
+      throw new Error('Machine requires a credential configured for PowerShell remoting')
+    }
+
+    result = await executePsRemoting({
+      target: machine.fqdn || machine.ip_address,
+      port: machine.port || 5985,
+      username: remoteUsername(credential),
+      password: decryptSecret(credential.secret_encrypted),
+      content: "Write-Output ('PowerShell remoting connected to ' + $env:COMPUTERNAME)",
+    })
   } else if (machine.transport === 'ssh') {
     const credential = getMachineCredential(machine)
     if (!credential) {

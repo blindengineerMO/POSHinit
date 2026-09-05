@@ -197,6 +197,28 @@ export const useAppStore = defineStore('app', {
       this.catalog.machines = await this.api('/api/machines')
       return result
     },
+    async importVmware(connectorId, passwordPlain) {
+      const result = await this.api('/api/vmware/import', {
+        method: 'POST',
+        body: JSON.stringify({ connectorId, passwordPlain }),
+      })
+      this.catalog.machines = await this.api('/api/machines')
+      return result
+    },
+    async discoverVmware(connectorId) {
+      return this.api('/api/vmware/discover', {
+        method: 'POST',
+        body: JSON.stringify({ connectorId }),
+      })
+    },
+    async importVmwareSelection(connectorId, vmIds, credentialIds) {
+      const result = await this.api('/api/vmware/import-selection', {
+        method: 'POST',
+        body: JSON.stringify({ connectorId, vmIds, credentialIds }),
+      })
+      this.catalog.machines = await this.api('/api/machines')
+      return result
+    },
     async searchLogs(query) {
       this.logResults = await this.api(`/api/logs?q=${encodeURIComponent(query || '')}`)
       return this.logResults

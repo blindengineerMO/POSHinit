@@ -10,13 +10,13 @@ This repository now contains a runnable greenfield foundation with:
 - Monaco-based script editor
 - PowerShell parser-backed syntax validation
 - Personal and shared script library model with revision history
-- Machine inventory, deployment groups, and connection testing
+- Machine inventory, deployment groups, and local, SSH, and PowerShell Remoting connection testing
 - Credential vault with encrypted secret storage
 - Schedule builder for one-time and recurring runs
 - Manual and scheduled execution services
 - Reporting and searchable logs
 - Local auth bootstrap with teams and users
-- vCenter settings and import service scaffolding
+- VMware connector registry for vCenter REST and standalone ESXi SOAP inventory import
 - Webhook-triggered execution with a shared secret
 
 ## Stack
@@ -115,6 +115,7 @@ npm test
 - Stored credentials with AES-256-GCM encryption
 - Per-machine credential assignment
 - Test connection action with a PowerShell hello-world validation
+- PowerShell Remoting execution through WinRM, using `Invoke-Command` and sealed credentials
 
 ### Scheduling And Execution
 
@@ -195,24 +196,24 @@ curl -X POST http://localhost:4000/webhooks/execute \
   -d '{"scriptIds":["SCRIPT_ID"],"machineIds":["MACHINE_ID"]}'
 ```
 
-### vCenter Import
+### VMware Import
 
-- `POST /api/vcenter/import`
+- `POST /api/vmware/import`
 
 Example:
 
 ```bash
-curl -X POST http://localhost:4000/api/vcenter/import \
+curl -X POST http://localhost:4000/api/vmware/import \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"baseUrl":"https://vcenter.example.com","username":"administrator@vsphere.local","passwordPlain":"secret","verifyTls":false}'
+  -d '{"connectorId":"VMWARE_CONNECTOR_ID"}'
 ```
 
 ## Current Constraints
 
-- Scheduled executions currently run local-transport targets only.
-- SSH is supported for connection testing, but scheduler fan-out is intentionally conservative in this first pass.
-- vCenter import currently focuses on inventory import rather than deeper VM action workflows.
+- Local and PowerShell Remoting targets can run through manual, scheduled, and webhook execution. SSH remains available for connection testing only.
+- PowerShell Remoting targets need WinRM and PS Remoting enabled (for example, `Enable-PSRemoting`) and a matching `psremoting` credential. Port `5985` uses HTTP; port `5986` opts into WinRM HTTPS.
+- VMware inventory import supports vCenter REST endpoints and standalone ESXi hosts through the native `/sdk` SOAP API; deeper VM action workflows are not yet implemented.
 - Authentication is local and seeded; SSO and MFA are planned follow-on items.
 
 ## Security Notes
@@ -230,7 +231,3 @@ curl -X POST http://localhost:4000/api/vcenter/import \
 - Add SSO, MFA, and deeper RBAC controls
 - Add notification channels and retention controls
 - Add file upload browsing and image asset preview in the library
-
-## References
-
-- See [PLAN.md](./PLAN.md) for the implementation roadmap and competitive-research notes.

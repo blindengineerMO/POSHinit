@@ -75,13 +75,28 @@ export function getCatalog() {
     report: JSON.parse(execution.report_json || '{}'),
   }))
   const settings = getSettings()
+  const vcenterConnectors = Array.isArray(settings.vcenter.connectors)
+    ? settings.vcenter.connectors
+    : settings.vcenter.baseUrl
+      ? [{
+          id: 'legacy-vcenter',
+          kind: 'vcenter',
+          name: 'vCenter',
+          baseUrl: settings.vcenter.baseUrl,
+          username: settings.vcenter.username || '',
+          passwordEncrypted: settings.vcenter.passwordEncrypted || '',
+          verifyTls: Boolean(settings.vcenter.verifyTls),
+          autoImportGroupId: settings.vcenter.autoImportGroupId || '',
+        }]
+      : []
 
+  const { passwordEncrypted: _legacyPasswordEncrypted, ...safeVcenterSettings } = settings.vcenter
   settings.vcenter = {
-    ...settings.vcenter,
-    passwordMasked:
-      settings.vcenter.passwordEncrypted && decryptSecret(settings.vcenter.passwordEncrypted)
-        ? '********'
-        : '',
+    ...safeVcenterSettings,
+    connectors: vcenterConnectors.map(({ passwordEncrypted, ...connector }) => ({
+      ...connector,
+      passwordConfigured: Boolean(passwordEncrypted && decryptSecret(passwordEncrypted)),
+    })),
   }
 
   return {

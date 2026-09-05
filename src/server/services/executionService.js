@@ -1,7 +1,8 @@
 import { nanoid } from 'nanoid'
 import { all, get, nowIso, run } from '../db/client.js'
 import { writeLog } from './logService.js'
-import { executeLocalPowerShell } from './powershellService.js'
+import { decryptSecret } from '../utils/crypto.js'
+import { executeLocalPowerShell, executePsRemoting } from './powershellService.js'
 import { computeNextRun, getDueSchedules, markScheduleExecuted } from './scheduleService.js'
 
 function buildTargetMachines(scheduleId) {
@@ -29,7 +30,7 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
   const executionId = nanoid()
   const startedAt = nowIso()
   const script = get('SELECT id, name, content FROM library_entries WHERE id = ?', [scriptId])
-  const machine = get('SELECT id, name, transport FROM machines WHERE id = ?', [machineId])
+  const machine = get('SELECT * FROM machines WHERE id = ?', [machineId])
 
   run(
     `INSERT INTO executions (
@@ -60,11 +61,32 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
 
   let result
   try {
-    if (machine.transport !== 'local') {
-      throw new Error('Only local transport execution is currently supported by the scheduler')
-    }
+    if (machine.transport === 'local') {
+      result = await executeLocalPowerShell(script.content)
+    } else if (machine.transport === 'psremoting') {
+      const credential = machine.credential_id
+        ? get('SELECT * FROM credentials WHERE id = ?', [machine.credential_id])
+        : null
+      if (!credential) {
+        throw new Error('PowerShell remoting target is missing a credential')
+      }
+      if (credential.protocol !== 'psremoting') {
+        throw new Error('PowerShell remoting target requires a psremoting credential')
+      }
 
-    result = await executeLocalPowerShell(script.content)
+      const username = credential.domain_name && !credential.username.includes('\\') && !credential.username.includes('@')
+        ? `${credential.domain_name}\\${credential.username}`
+        : credential.username
+      result = await executePsRemoting({
+        target: machine.fqdn || machine.ip_address,
+        port: machine.port || 5985,
+        username,
+        password: decryptSecret(credential.secret_encrypted),
+        content: script.content,
+      })
+    } else {
+      throw new Error(`Execution transport is not supported: ${machine.transport}`)
+    }
   } catch (error) {
     result = {
       code: 1,

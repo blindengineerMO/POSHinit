@@ -15,7 +15,7 @@ import { getSettings, saveSettings } from '../services/settingsService.js'
 import { listSchedules, saveSchedule } from '../services/scheduleService.js'
 import { listTeams, saveTeam } from '../services/teamService.js'
 import { listUsers, saveUser } from '../services/userService.js'
-import { importVcenterMachines, saveVcenterSettings } from '../services/vcenterService.js'
+import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, importVmwareSelection, saveVcenterSettings } from '../services/vcenterService.js'
 import { validatePowerShell } from '../services/powershellService.js'
 import { encryptSecret } from '../utils/crypto.js'
 
@@ -168,6 +168,32 @@ export function createRouter() {
 
   router.post('/api/vcenter/import', async (req, res) => {
     res.json(await importVcenterMachines(req.body))
+  })
+
+  router.post('/api/vmware/import', async (req, res) => {
+    const settings = getSettings().vcenter
+    const connector = (settings.connectors || []).find((item) => item.id === req.body.connectorId)
+    res.json(
+      await importVmwareMachines(
+        { connectors: [{ ...connector, passwordPlain: req.body.passwordPlain }] },
+        req.body.connectorId,
+      ),
+    )
+  })
+
+  router.post('/api/vmware/discover', async (req, res) => {
+    res.json(await discoverVmwareMachines(getSettings().vcenter, req.body.connectorId))
+  })
+
+  router.post('/api/vmware/import-selection', async (req, res) => {
+    res.json(
+      await importVmwareSelection(
+        getSettings().vcenter,
+        req.body.connectorId,
+        req.body.vmIds,
+        req.body.credentialIds,
+      ),
+    )
   })
 
   router.get('/api/logs', (req, res) => {
