@@ -108,6 +108,7 @@ export function getCatalog() {
       clientSecretConfigured: Boolean(clientSecretEncrypted && decryptSecret(clientSecretEncrypted)),
     })),
   }
+  settings.proxmox = { ...(settings.proxmox || {}), connectors: (settings.proxmox?.connectors || []).map(({ apiTokenEncrypted, ...connector }) => ({ ...connector, apiTokenConfigured: Boolean(apiTokenEncrypted && decryptSecret(apiTokenEncrypted)) })) }
 
   return {
     users,

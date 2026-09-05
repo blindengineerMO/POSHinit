@@ -258,6 +258,7 @@ function seedSettings() {
     azureArc: {
       connectors: [],
     },
+    proxmox: { connectors: [] },
     notifications: {
       defaultChannel: 'log',
       notifyOnFailure: true,

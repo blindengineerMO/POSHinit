@@ -1,7 +1,7 @@
 ![Header](public/poshinit.png)
 # POSHinit
 
-POSHinit is a web-based, API-first PowerShell control plane for multi-user script authoring, scheduling, machine inventory, credential vaulting, execution reporting, and vCenter-assisted inventory import. The current implementation runs as a single-port Express host on `4000` by default and serves a Vue 3 + Vuetify SPA.
+POSHinit is a web-based, API-first PowerShell control plane for multi-user script authoring, scheduling, machine inventory, credential vaulting, execution reporting, and virtualization-assisted inventory import. The current implementation runs as a single-port Express host on `4000` by default and serves a Vue 3 + Vuetify SPA.
 
 ## Status
 
@@ -20,6 +20,7 @@ This repository now contains a runnable greenfield foundation with:
 - Local authentication plus Microsoft Entra ID enterprise sign-in with tenant-managed MFA
 - VMware connector registry for vCenter REST and standalone ESXi SOAP inventory import
 - Azure Arc connector registry for subscription-scoped Arc-enabled server inventory import
+- Proxmox VE connector registry for cluster-wide and node-scoped QEMU/LXC inventory import
 - SMTP and HTTP(S) webhook delivery for completed job alerts
 - Notification policies for routed system, script, and job events
 - xterm.js-powered node CLI and generated RDP connection files
@@ -175,6 +176,17 @@ In **Node Inventory**, select **Import Azure Arc** to open the floating three-st
 - Import the selected records and run connectivity tests before completing the wizard.
 
 The integration is inventory-only: it does not deploy Arc extensions, execute Azure Run Command, or modify Azure resources. Assign the app registration the Azure `Reader` role at the subscription scope or a narrower scope that includes the Arc machine resources. Azure Arc requires the `Microsoft.HybridCompute` resource provider to be registered in the subscription.
+
+### Proxmox VE Inventory
+
+Administrators configure Proxmox connectors in **System Settings > Proxmox VE Inventory**, then choose **Proxmox VE** from the universal **Add Or Import Machines** wizard. A connector can either read the full cluster or one individual node.
+
+- Cluster connectors query `/api2/json/cluster/resources` and can return all guests, QEMU/KVM virtual machines only, or LXC containers only.
+- Node connectors query `/api2/json/nodes/{node}/qemu` or `/api2/json/nodes/{node}/lxc`.
+- Use a least-privilege Proxmox API token in the form `user@realm!tokenid=secret`; a full `PVEAPIToken=...` value is also accepted. Tokens are sealed at rest and never returned to the browser.
+- The connector-level TLS switch is available for trusted self-signed Proxmox endpoints only.
+
+The wizard discovers the inventory, lets the operator select guests, assigns a PowerShell Remoting credential, then imports and tests each selected target. Inventory discovery is read-only. Like the VMware import, a discovered guest must still have a reachable management endpoint before POSHinit can execute against it.
 
 ### Secret Templates
 
@@ -333,6 +345,13 @@ All notification policy endpoints require an administrator bearer token.
 
 Both endpoints require an administrator bearer token and an Azure Arc connector ID. Discovery obtains an Azure Resource Manager client-credentials token and reads the selected subscription's Arc machine inventory.
 
+### Proxmox VE Import
+
+- `POST /api/proxmox/discover`
+- `POST /api/proxmox/import-selection`
+
+Both endpoints require an administrator bearer token and a configured Proxmox connector ID. Discovery queries the connector's cluster resource or node QEMU/LXC endpoint with its sealed API token. Import accepts selected machine IDs and optional credential bindings.
+
 ### VMware Import
 
 - `POST /api/vmware/import`
@@ -354,6 +373,7 @@ VMware connectors are configured in **System Settings > VMware Inventory**. Add 
 - PowerShell Remoting targets need WinRM and PS Remoting enabled (for example, `Enable-PSRemoting`) and a matching `psremoting` credential. Port `5985` uses HTTP; port `5986` opts into WinRM HTTPS.
 - VMware inventory import supports vCenter REST endpoints and standalone ESXi hosts through the native `/sdk` SOAP API; deeper VM action workflows are not yet implemented.
 - Azure Arc discovery imports only Arc-enabled server resource metadata. Imported targets still need a directly reachable WinRM endpoint and matching PowerShell Remoting credential for POSHinit execution.
+- Proxmox VE discovery imports guest inventory metadata. Imported guests still need a directly reachable WinRM endpoint and matching PowerShell Remoting credential for POSHinit execution.
 - Subnet discovery is IPv4 only and is limited to 1,024 usable addresses per scan. TCP reachability, reverse DNS, WinRM, and SSH results depend on the POSHinit server's own network path and firewall policy.
 - Entra ID uses an in-memory, short-lived PKCE and callback ticket store. Run a shared session store before deploying more than one application instance.
 
@@ -368,6 +388,7 @@ VMware connectors are configured in **System Settings > VMware Inventory**. Add 
 - SMTP passwords are sealed in settings; alert payloads intentionally omit script content, resolved secrets, and full run output.
 - The VMware TLS bypass applies only to a connector that explicitly enables it. Use it only for trusted endpoints with self-signed certificates.
 - Azure Arc client credentials are used only from the server to acquire Azure Resource Manager tokens. Grant the connector application least-privilege Azure RBAC, normally `Reader` for inventory discovery.
+- Proxmox API tokens are used only by the server for configured inventory requests. Grant only the minimum audit or inventory privileges, and enable the connector TLS bypass only for a trusted self-signed endpoint.
 
 ## Recommended Next Work
 

@@ -10,7 +10,7 @@ import { executeAdHocRun, executeScheduleWebhook } from '../services/executionSe
 import { listGroups, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
 import { searchLogs } from '../services/logService.js'
-import { listMachines, saveCredential, saveMachine, testMachineConnection, uploadAsset } from '../services/machineService.js'
+import { listMachines, saveCredential, saveMachine, testMachineCandidate, testMachineConnection, uploadAsset } from '../services/machineService.js'
 import { getSubnetScan, importSubnetScan, startSubnetScan } from '../services/subnetScanService.js'
 import { getSettings, saveEntraSettings, saveNotificationSettings, saveSettings } from '../services/settingsService.js'
 import { getScheduleWebhook, getScheduleWebhookStatus, getWebhookSchedule, listSchedules, saveSchedule } from '../services/scheduleService.js'
@@ -18,6 +18,7 @@ import { listTeams, saveTeam } from '../services/teamService.js'
 import { listUsers, saveUser } from '../services/userService.js'
 import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, importVmwareSelection, saveVcenterSettings } from '../services/vcenterService.js'
 import { discoverAzureArcMachines, importAzureArcSelection, saveAzureArcSettings } from '../services/azureArcService.js'
+import { discoverProxmoxMachines, importProxmoxSelection, saveProxmoxSettings } from '../services/proxmoxService.js'
 import { validatePowerShell } from '../services/powershellService.js'
 import { connectTerminal, disconnectTerminal, runTerminalCommand } from '../services/terminalService.js'
 import { encryptSecret } from '../utils/crypto.js'
@@ -190,6 +191,9 @@ export function createRouter() {
   router.post('/api/machines/:id/test', async (req, res) => {
     res.json(await testMachineConnection(req.params.id))
   })
+  router.post('/api/machines/test-candidate', async (req, res) => {
+    res.json(await testMachineCandidate(req.body))
+  })
   router.post('/api/subnet-scans', (req, res) => {
     res.json(startSubnetScan(req.body))
   })
@@ -297,6 +301,7 @@ export function createRouter() {
       if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Azure Arc' })
       return res.json(saveAzureArcSettings(req.body))
     }
+    if (req.params.key === 'proxmox') { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Proxmox' }); return res.json(saveProxmoxSettings(req.body)) }
 
     res.json(saveSettings(req.params.key, req.body))
   })
@@ -360,6 +365,8 @@ export function createRouter() {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can import Azure Arc machines' })
     return res.json(await importAzureArcSelection(getSettings().azureArc, req.body.connectorId, req.body.machineIds, req.body.credentialIds))
   })
+  router.post('/api/proxmox/discover', async (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can discover Proxmox machines' }); return res.json(await discoverProxmoxMachines(getSettings().proxmox, req.body.connectorId)) })
+  router.post('/api/proxmox/import-selection', async (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can import Proxmox machines' }); return res.json(await importProxmoxSelection(getSettings().proxmox, req.body.connectorId, req.body.machineIds, req.body.credentialIds)) })
 
   router.get('/api/logs', (req, res) => {
     res.json(searchLogs(req.query.q || ''))

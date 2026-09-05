@@ -9,6 +9,7 @@ const methods = [
   { id: 'vcenter', title: 'VM-Ware vCenter', detail: 'Discover virtual machines through the vCenter REST inventory.', icon: 'mdi-vmware' },
   { id: 'esxi', title: 'VM-Ware ESXi', detail: 'Discover virtual machines directly from an ESXi SOAP endpoint.', icon: 'mdi-server-network-outline' },
   { id: 'azure-arc', title: 'Azure Arc', detail: 'Discover Arc-enabled servers through Azure Resource Manager.', icon: 'mdi-microsoft-azure' },
+  { id: 'proxmox', title: 'Proxmox VE', detail: 'Discover cluster-wide or node-scoped VMs and containers.', icon: 'mdi-server-network-outline' },
   { id: 'network', title: 'Network Discovery', detail: 'Probe a CIDR, resolve DNS, validate access, then import.', icon: 'mdi-radar' },
 ]
 

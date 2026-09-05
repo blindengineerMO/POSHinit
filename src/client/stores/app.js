@@ -195,6 +195,9 @@ export const useAppStore = defineStore('app', {
       this.catalog.machines = await this.api('/api/machines')
       return result
     },
+    async testMachineCandidate(candidate) {
+      return this.api('/api/machines/test-candidate', { method: 'POST', body: JSON.stringify(candidate) })
+    },
     async connectTerminal(machineId) {
       return this.api(`/api/machines/${machineId}/terminal/connect`, { method: 'POST' })
     },
@@ -299,6 +302,8 @@ export const useAppStore = defineStore('app', {
       this.catalog.machines = await this.api('/api/machines')
       return result
     },
+    async discoverProxmox(connectorId) { return this.api('/api/proxmox/discover', { method: 'POST', body: JSON.stringify({ connectorId }) }) },
+    async importProxmoxSelection(connectorId, machineIds, credentialIds) { const result = await this.api('/api/proxmox/import-selection', { method: 'POST', body: JSON.stringify({ connectorId, machineIds, credentialIds }) }); this.catalog.machines = await this.api('/api/machines'); return result },
     async startSubnetScan(payload) {
       return this.api('/api/subnet-scans', { method: 'POST', body: JSON.stringify(payload) })
     },

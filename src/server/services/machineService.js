@@ -88,6 +88,26 @@ function remoteUsername(credential) {
   return `${credential.domain_name}\\${credential.username}`
 }
 
+function getPsRemotingCredential(credentialId) {
+  const credential = credentialId ? get('SELECT * FROM credentials WHERE id = ?', [credentialId]) : null
+  if (!credential) throw new Error('A PowerShell remoting credential is required')
+  if (credential.protocol !== 'psremoting') throw new Error('The selected credential must be configured for PowerShell remoting')
+  return credential
+}
+
+async function probePsRemoting(target, port, credentialId) {
+  if (!String(target || '').trim()) throw new Error('The virtual machine did not report a reachable name or IP address')
+  const credential = getPsRemotingCredential(credentialId)
+  const result = await executePsRemoting({
+    target: String(target).trim(),
+    port: Number(port || 5985),
+    username: remoteUsername(credential),
+    password: decryptSecret(credential.secret_encrypted),
+    content: "Write-Output ('PowerShell remoting connected to ' + $env:COMPUTERNAME)",
+  })
+  return { ok: result.code === 0, ...result }
+}
+
 function runOverSsh(machine, credential, command) {
   return new Promise((resolve, reject) => {
     const client = new SshClient()
@@ -121,7 +141,7 @@ function runOverSsh(machine, credential, command) {
       .connect({
         host: machine.fqdn || machine.ip_address,
         port: machine.port || 22,
-        username: credential.username,
+        username: remoteUsername(credential),
         password: decryptSecret(credential.secret_encrypted),
         readyTimeout: 20000,
       })
@@ -138,21 +158,7 @@ export async function testMachineConnection(machineId) {
   if (machine.transport === 'local') {
     result = await executeLocalPowerShell("Write-Output 'Hello from local POSHinit node'")
   } else if (machine.transport === 'psremoting') {
-    const credential = getMachineCredential(machine)
-    if (!credential) {
-      throw new Error('Machine is missing a PowerShell remoting credential')
-    }
-    if (credential.protocol !== 'psremoting') {
-      throw new Error('Machine requires a credential configured for PowerShell remoting')
-    }
-
-    result = await executePsRemoting({
-      target: machine.fqdn || machine.ip_address,
-      port: machine.port || 5985,
-      username: remoteUsername(credential),
-      password: decryptSecret(credential.secret_encrypted),
-      content: "Write-Output ('PowerShell remoting connected to ' + $env:COMPUTERNAME)",
-    })
+    result = await probePsRemoting(machine.fqdn || machine.ip_address, machine.port, machine.credential_id)
   } else if (machine.transport === 'ssh') {
     const credential = getMachineCredential(machine)
     if (!credential) {
@@ -180,9 +186,37 @@ export async function testMachineConnection(machineId) {
     },
   )
 
-  return {
-    ok: result.code === 0,
-    ...result,
+  return { ok: result.ok ?? result.code === 0, ...result }
+}
+
+export async function testMachineCandidate(payload = {}) {
+  const target = String(payload.target || '').trim()
+  let initial
+  try {
+    initial = await probePsRemoting(target, payload.port, payload.credentialId)
+  } catch (error) {
+    initial = { ok: false, code: 1, stdout: '', stderr: error.message }
+  }
+  if (initial.ok) return initial
+
+  const credential = getPsRemotingCredential(payload.credentialId)
+  try {
+    const remediation = await runOverSsh(
+      { fqdn: target, port: payload.sshPort || 22 },
+      credential,
+      'powershell.exe -NoProfile -NonInteractive -Command "Enable-PSRemoting -Force -SkipNetworkProfileCheck" || pwsh -NoProfile -NonInteractive -Command "Enable-PSRemoting -Force -SkipNetworkProfileCheck"',
+    )
+    if (remediation.code !== 0) {
+      return { ...initial, remediationAttempted: true, remediationError: `${remediation.stdout || ''}${remediation.stderr || ''}`.trim() || 'SSH could not enable PowerShell remoting' }
+    }
+    try {
+      const retried = await probePsRemoting(target, payload.port, payload.credentialId)
+      return { ...retried, remediationAttempted: true, remediated: retried.ok, remediationError: retried.ok ? '' : 'PowerShell remoting remained unavailable after SSH remediation' }
+    } catch (error) {
+      return { ...initial, remediationAttempted: true, remediationError: `SSH remediation completed, but the remoting retry failed: ${error.message}` }
+    }
+  } catch (error) {
+    return { ...initial, remediationAttempted: true, remediationError: `SSH remediation was unavailable: ${error.message}` }
   }
 }
 
