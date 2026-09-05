@@ -15,7 +15,7 @@ This repository now contains a runnable greenfield foundation with:
 - Schedule builder for one-time and recurring runs
 - Manual and scheduled execution services
 - Reporting and searchable logs
-- Local auth bootstrap with teams and users
+- Local authentication plus Microsoft Entra ID enterprise sign-in with tenant-managed MFA
 - VMware connector registry for vCenter REST and standalone ESXi SOAP inventory import
 - Webhook-triggered execution with a shared secret
 
@@ -79,6 +79,17 @@ npm test
 | `LOG_LEVEL` | `info` | Pino log level |
 | `SCHEDULER_POLL_MS` | `15000` | Schedule polling interval |
 | `DEMO_PASSWORD` | `ChangeMe123!` | Seeded admin password |
+| `PUBLIC_APP_URL` | `http://localhost:$PORT` | Public base URL used after enterprise sign-in |
+| `ENTRA_TENANT_ID` | none | Microsoft Entra tenant ID or tenant domain |
+| `ENTRA_CLIENT_ID` | none | Application (client) ID from the Entra app registration |
+| `ENTRA_CLIENT_SECRET` | none | Server-side client secret for the Entra app registration |
+| `ENTRA_REDIRECT_URI` | `$PUBLIC_APP_URL/auth/entra/callback` | Exact web redirect URI registered in Entra |
+
+## Microsoft Entra ID
+
+Enterprise sign-in uses the Microsoft Authentication Library (MSAL) for Node with the authorization-code flow and PKCE. Configure a **Web** redirect URI in the Microsoft Entra app registration that exactly matches `ENTRA_REDIRECT_URI`; for a local deployment the default is `http://localhost:4000/auth/entra/callback`. Set the tenant ID, client ID, and client secret as server environment variables, then restart POSHinit.
+
+An Entra-authenticated identity does not create an operator automatically. In **Access Control**, create or edit the operator, enable **Allow enterprise sign-in**, and enter the Entra UPN/email returned at sign-in. Entra tenant policy controls MFA and Conditional Access. The system audit log records local and enterprise sign-in successes, failed attempts, enterprise callback failures, and sign-outs.
 
 ## High-Level Architecture
 
@@ -137,6 +148,8 @@ npm test
 ### Auth
 
 - `POST /auth/login`
+- `GET /auth/entra/start`
+- `GET /auth/entra/callback`
 
 Example:
 
@@ -214,7 +227,7 @@ curl -X POST http://localhost:4000/api/vmware/import \
 - Local and PowerShell Remoting targets can run through manual, scheduled, and webhook execution. SSH remains available for connection testing only.
 - PowerShell Remoting targets need WinRM and PS Remoting enabled (for example, `Enable-PSRemoting`) and a matching `psremoting` credential. Port `5985` uses HTTP; port `5986` opts into WinRM HTTPS.
 - VMware inventory import supports vCenter REST endpoints and standalone ESXi hosts through the native `/sdk` SOAP API; deeper VM action workflows are not yet implemented.
-- Authentication is local and seeded; SSO and MFA are planned follow-on items.
+- Entra ID uses an in-memory, short-lived PKCE and callback ticket store. Run a shared session store before deploying more than one application instance.
 
 ## Security Notes
 
@@ -222,12 +235,13 @@ curl -X POST http://localhost:4000/api/vmware/import \
 - Secrets are encrypted with AES-256-GCM and should be protected with a strong `VAULT_SECRET`.
 - SQL statements are parameterized through prepared statements in the SQLite wrapper.
 - Webhook execution requires the shared secret from `WEBHOOK_SECRET`.
+- Entra client secrets stay server-side in environment configuration; never place them in the browser or a checked-in `.env` file.
 
 ## Recommended Next Work
 
 - Add approval workflows with approver UI and route enforcement
 - Add richer parameter schemas per script and per schedule
 - Add SSH-based scheduled remote execution fan-out
-- Add SSO, MFA, and deeper RBAC controls
+- Add a shared Entra PKCE/session store for multi-instance deployments and deeper RBAC controls
 - Add notification channels and retention controls
 - Add file upload browsing and image asset preview in the library

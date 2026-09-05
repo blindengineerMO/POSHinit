@@ -4,8 +4,8 @@ import { getSettings } from './settingsService.js'
 
 export function getCatalog() {
   const users = all(
-    'SELECT id, name, email, role, status, created_at, updated_at FROM users ORDER BY name ASC',
-  )
+    'SELECT id, name, email, role, status, entra_enabled, entra_email, created_at, updated_at FROM users ORDER BY name ASC',
+  ).map((user) => ({ ...user, entraEnabled: Boolean(user.entra_enabled), entraEmail: user.entra_email || '' }))
   const teams = all(
     `SELECT t.id, t.name, t.description, t.created_at, t.updated_at,
             COALESCE(json_group_array(tm.user_id), '[]') AS member_ids_json

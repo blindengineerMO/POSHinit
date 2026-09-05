@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import AppShell from './components/app/AppShell.vue'
 import { useAppStore } from './stores/app'
 
@@ -11,12 +11,44 @@ const form = reactive({
 })
 
 const loginDisabled = computed(() => store.loading || !form.email || !form.password)
+const enterpriseEnabled = ref(false)
+const enterprisePending = ref(false)
 
 async function submitLogin() {
   await store.login(form.email, form.password)
 }
 
+function startEnterpriseLogin() {
+  globalThis.location.assign('/auth/entra/start')
+}
+
 onMounted(async () => {
+  const url = new URL(globalThis.location.href)
+  const ticket = url.searchParams.get('enterpriseTicket')
+  if (ticket) {
+    enterprisePending.value = true
+    try {
+      await store.completeEnterpriseLogin(ticket)
+    } catch (error) {
+      store.lastError = error.message
+    } finally {
+      enterprisePending.value = false
+      url.searchParams.delete('enterpriseTicket')
+      globalThis.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    }
+  } else if (url.searchParams.get('enterpriseError')) {
+    store.lastError = 'Enterprise sign-in was not completed. Contact an administrator if the problem persists.'
+    url.searchParams.delete('enterpriseError')
+    globalThis.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+  }
+
+  try {
+    const response = await fetch('/auth/entra/status')
+    enterpriseEnabled.value = Boolean((await response.json()).enabled)
+  } catch (_error) {
+    enterpriseEnabled.value = false
+  }
+
   if (store.token) {
     try {
       await store.bootstrap()
@@ -60,6 +92,11 @@ onMounted(async () => {
                 <v-btn type="submit" size="large" block class="glass-button" :disabled="loginDisabled">
                   Enter Control Plane
                 </v-btn>
+                <div class="enterprise-divider"><span>or</span></div>
+                <v-btn size="large" block variant="outlined" prepend-icon="mdi-microsoft" :loading="enterprisePending" :disabled="enterprisePending || !enterpriseEnabled" @click="startEnterpriseLogin">
+                  Enterprise Login With Entra ID
+                </v-btn>
+                <p class="enterprise-note"><v-icon icon="mdi-shield-lock-outline" size="15" /> Uses your organization’s Entra ID and MFA policy.</p>
               </v-form>
 
               <div class="login-foot mono">
@@ -117,4 +154,6 @@ onMounted(async () => {
   font-size: 0.82rem;
   color: #d6b6e4;
 }
+
+.enterprise-divider { display:flex; align-items:center; gap:10px; margin:16px 0; color:#c7a8d6; font:10px 'Share Tech Mono',monospace; text-transform:uppercase; letter-spacing:.1em; }.enterprise-divider::before,.enterprise-divider::after { content:''; flex:1; border-top:1px solid rgba(151,191,255,.16); }.enterprise-note { display:flex; align-items:center; justify-content:center; gap:6px; margin:10px 0 0; color:#c7a8d6; font-size:.72rem; }
 </style>

@@ -17,6 +17,7 @@
     "automation"
   ],
   "dependencies": {
+    "@azure/msal-node": "^6.0.0",
     "@mdi/font": "^7.4.47",
     "@vitejs/plugin-vue": "^6.0.1",
     "bcryptjs": "^3.0.2",
@@ -28,7 +29,6 @@
     "express": "^5.1.0",
     "grid-layout-plus": "^1.1.1",
     "helmet": "^8.1.0",
-    "jspdf": "^3.0.3",
     "monaco-editor": "^0.55.0",
     "multer": "^2.0.2",
     "nanoid": "^5.1.6",

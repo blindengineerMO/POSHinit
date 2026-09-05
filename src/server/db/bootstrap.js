@@ -14,6 +14,8 @@ function createTables() {
       role TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
+      entra_enabled INTEGER NOT NULL DEFAULT 0,
+      entra_email TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -196,6 +198,17 @@ function createTables() {
       updated_at TEXT NOT NULL
     );
   `)
+}
+
+function ensureUserIdentitySchema() {
+  const columns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
+  if (!columns.includes('entra_enabled')) {
+    db.exec('ALTER TABLE users ADD COLUMN entra_enabled INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!columns.includes('entra_email')) {
+    db.exec('ALTER TABLE users ADD COLUMN entra_email TEXT')
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_entra_email_unique ON users(entra_email COLLATE NOCASE) WHERE entra_email IS NOT NULL')
 }
 
 function seedSettings() {
@@ -513,6 +526,7 @@ function seedDemoData() {
 
 export function initializeDatabase() {
   createTables()
+  ensureUserIdentitySchema()
   seedSettings()
   seedDemoData()
   logger.info({ dbPath: config.dbPath }, 'database initialized')

@@ -3,7 +3,7 @@ import multer from 'multer'
 import path from 'node:path'
 import { config } from '../config.js'
 import { requireAuth } from '../middleware/auth.js'
-import { login } from '../services/authService.js'
+import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
 import { executeAdHocRun } from '../services/executionService.js'
@@ -18,6 +18,7 @@ import { listUsers, saveUser } from '../services/userService.js'
 import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, importVmwareSelection, saveVcenterSettings } from '../services/vcenterService.js'
 import { validatePowerShell } from '../services/powershellService.js'
 import { encryptSecret } from '../utils/crypto.js'
+import { beginEntraSignIn, consumeEnterpriseTicket, enterpriseFailureRedirect, enterpriseSignInFailure, entraStatus, finishEntraSignIn } from '../services/entraService.js'
 
 const upload = multer({
   dest: path.join(config.uploadsDir),
@@ -31,7 +32,33 @@ export function createRouter() {
   })
 
   router.post('/auth/login', (req, res) => {
-    res.json(login(req.body))
+    res.json(login(req.body, { ip: req.ip }))
+  })
+
+  router.get('/auth/entra/status', (_req, res) => {
+    res.json(entraStatus())
+  })
+
+  router.get('/auth/entra/start', async (req, res, next) => {
+    try {
+      res.redirect(await beginEntraSignIn({ ip: req.ip }))
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  router.get('/auth/entra/callback', async (req, res) => {
+    try {
+      const result = await finishEntraSignIn({ code: req.query.code, state: req.query.state }, { ip: req.ip })
+      res.redirect(result.redirectUrl)
+    } catch (error) {
+      enterpriseSignInFailure(error, { ip: req.ip })
+      res.redirect(enterpriseFailureRedirect())
+    }
+  })
+
+  router.post('/auth/entra/complete', (req, res) => {
+    res.json(consumeEnterpriseTicket(req.body.ticket))
   })
 
   router.post('/webhooks/execute', async (req, res) => {
@@ -54,6 +81,11 @@ export function createRouter() {
   })
 
   router.use('/api', requireAuth)
+
+  router.post('/api/auth/logout', (req, res) => {
+    recordLogout(req.user, { ip: req.ip })
+    res.status(204).end()
+  })
 
   router.get('/api/bootstrap', (req, res) => {
     res.json({

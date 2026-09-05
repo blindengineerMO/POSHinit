@@ -65,10 +65,7 @@ export const useAppStore = defineStore('app', {
           method: 'POST',
           body: JSON.stringify({ email, password }),
         })
-        this.token = payload.token
-        globalThis.localStorage?.setItem('poshinit-token', payload.token)
-        this.currentUser = payload.user
-        await this.bootstrap()
+        await this.startSession(payload)
       } catch (error) {
         this.lastError = error.message
         throw error
@@ -76,7 +73,21 @@ export const useAppStore = defineStore('app', {
         this.loading = false
       }
     },
+    async completeEnterpriseLogin(ticket) {
+      const payload = await this.api('/auth/entra/complete', {
+        method: 'POST',
+        body: JSON.stringify({ ticket }),
+      })
+      await this.startSession(payload)
+    },
+    async startSession(payload) {
+      this.token = payload.token
+      globalThis.localStorage?.setItem('poshinit-token', payload.token)
+      this.currentUser = payload.user
+      await this.bootstrap()
+    },
     logout() {
+      const token = this.token
       this.token = ''
       this.currentUser = null
       this.catalog = {
@@ -90,6 +101,9 @@ export const useAppStore = defineStore('app', {
         settings: {},
       }
       globalThis.localStorage?.removeItem('poshinit-token')
+      if (token) {
+        fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {})
+      }
     },
     async bootstrap() {
       if (!this.token) {

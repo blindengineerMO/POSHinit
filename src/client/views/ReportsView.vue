@@ -44,7 +44,7 @@ async function exportExecution(row) {
             <button class="link-button" type="button" @click="openExecution(row)">{{ row.script_name }}</button>
           </template>
           <template #actions="{ row }">
-            <v-btn size="x-small" variant="text" prepend-icon="mdi-file-pdf-box" @click="exportExecution(row)">PDF</v-btn>
+            <v-btn size="x-small" variant="text" prepend-icon="mdi-file-pdf-box" @click="exportExecution(row)">Create PDF</v-btn>
           </template>
         </DataTable>
       </div>
@@ -72,8 +72,8 @@ async function exportExecution(row) {
     <FloatingWindow v-model="detailOpen" title="Execution Detail" :width="560" :start-x="320" :start-y="132">
       <div v-if="selectedExecution" class="detail-grid">
         <div class="detail-actions">
-          <span class="muted">Download the complete execution ledger, including output streams.</span>
-          <v-btn class="glass-button" size="small" prepend-icon="mdi-file-pdf-box" @click="exportExecution(selectedExecution)">Download PDF Report</v-btn>
+          <span class="muted">Open a print-ready execution ledger and save it as a PDF.</span>
+          <v-btn class="glass-button" size="small" prepend-icon="mdi-file-pdf-box" @click="exportExecution(selectedExecution)">Create PDF Report</v-btn>
         </div>
         <div class="kv-grid">
           <div>

@@ -1,6 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 
+const emit = defineEmits(['row-click'])
+
 const props = defineProps({
   title: {
     type: String,
@@ -17,6 +19,10 @@ const props = defineProps({
   pageSize: {
     type: Number,
     default: 8,
+  },
+  clickable: {
+    type: Boolean,
+    default: false,
   },
 })
 
@@ -98,7 +104,7 @@ function toggleSort(columnKey) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in pagedRows" :key="row.id || row.name">
+          <tr v-for="row in pagedRows" :key="row.id || row.name" :class="{ 'clickable-row': clickable }" @click="emit('row-click', row)">
             <td v-for="column in columns" :key="column.key">
               <slot :name="column.key" :row="row">
                 {{ row[column.key] }}
@@ -167,4 +173,7 @@ h3 {
   text-align: center;
   padding: 28px 12px;
 }
+
+.clickable-row { cursor: pointer; }
+.clickable-row:hover td { background: rgba(40, 211, 255, .06); }
 </style>

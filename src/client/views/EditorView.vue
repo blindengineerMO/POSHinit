@@ -13,6 +13,7 @@ const propertiesOpen = ref(false)
 const versionsOpen = ref(false)
 const validation = ref(null)
 const selectedId = ref('')
+const loadedRevision = ref('')
 
 const draft = reactive({
   id: '',
@@ -54,11 +55,13 @@ watch(
 
 function selectEntry(entry) {
   selectedId.value = entry.id
+  loadedRevision.value = ''
   propertiesOpen.value = true
 }
 
 function createEntry({ parentId, type }) {
   selectedId.value = ''
+  loadedRevision.value = ''
   Object.assign(draft, {
     id: '',
     parentId: parentId || '',
@@ -74,6 +77,7 @@ function createEntry({ parentId, type }) {
 
 async function saveEntry() {
   await store.saveLibraryEntry(draft)
+  loadedRevision.value = ''
 }
 
 async function deleteEntry(entryId) {
@@ -96,13 +100,20 @@ async function loadVersions() {
   versionsOpen.value = true
   scriptVersions.value = await store.api(`/api/library/${draft.id}/versions`)
 }
+
+function loadRevision(version) {
+  draft.content = version.content || ''
+  validation.value = null
+  loadedRevision.value = version.version_label
+  versionsOpen.value = false
+}
 </script>
 
 <template>
   <div class="page-grid">
     <div class="toolbar-row">
       <div>
-        <p class="section-eyebrow">Monaco Workspace</p>
+        <p class="section-eyebrow">Script Studio</p>
         <h2 class="page-title">VSCode-style PowerShell editor with floating library explorer</h2>
       </div>
       <div class="chip-line">
@@ -114,8 +125,12 @@ async function loadVersions() {
       </div>
     </div>
 
-    <NeonPanel subtitle="Editor Surface" title="Script Authoring">
+    <NeonPanel subtitle="Script Studio" title="Script Authoring">
       <div class="editor-stage"><ScriptEditor v-model="draft.content" /></div>
+      <div v-if="loadedRevision" class="revision-loaded">
+        <v-icon icon="mdi-history" />
+        <span>{{ loadedRevision }} loaded into the draft. Save to make it the current revision.</span>
+      </div>
     </NeonPanel>
 
     <FloatingWindow v-model="explorerOpen" title="Script Library" :width="380" :start-x="28" :start-y="132">
@@ -152,10 +167,13 @@ async function loadVersions() {
     <FloatingWindow v-model="versionsOpen" title="Revision History" :width="420" :start-x="438" :start-y="160">
       <div class="version-list">
         <article v-for="version in scriptVersions" :key="version.id" class="version-entry">
-          <strong>{{ version.version_label }}</strong>
-          <span class="muted mono">{{ version.created_at }}</span>
+          <div class="version-header">
+            <div><strong>{{ version.version_label }}</strong><span class="muted mono">{{ version.created_at }}</span></div>
+            <v-btn size="x-small" variant="tonal" prepend-icon="mdi-file-restore-outline" @click="loadRevision(version)">Load Into Draft</v-btn>
+          </div>
           <pre class="version-preview">{{ version.content }}</pre>
         </article>
+        <p v-if="!scriptVersions.length" class="muted">No saved revisions are available for this entry.</p>
       </div>
     </FloatingWindow>
   </div>
@@ -167,6 +185,19 @@ async function loadVersions() {
 }
 
 .editor-stage { padding: 14px; }
+
+.revision-loaded {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(40, 211, 255, .28);
+  border-radius: 12px;
+  background: rgba(40, 211, 255, .07);
+  color: #9fd7ff;
+  font-size: .78rem;
+}
 
 .editor-meta {
   display: grid;
@@ -202,6 +233,18 @@ async function loadVersions() {
   background: rgba(70, 118, 215, 0.08);
 }
 
+.version-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.version-header > div {
+  display: grid;
+  gap: 3px;
+}
+
 .version-preview {
   margin: 0;
   max-height: 140px;
@@ -212,6 +255,13 @@ async function loadVersions() {
   color: #9fd7ff;
   font-family: 'Azeret Mono', monospace;
   font-size: 0.8rem;
+}
+
+@media (max-width: 520px) {
+  .version-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 </style>

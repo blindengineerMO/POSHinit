@@ -12,13 +12,13 @@ export function requireAuth(req, _res, next) {
     return next(error)
   }
 
-  const user = get('SELECT id, name, email, role, status FROM users WHERE id = ?', [payload.userId])
+  const user = get('SELECT id, name, email, role, status, entra_enabled, entra_email FROM users WHERE id = ?', [payload.userId])
   if (!user) {
     const error = new Error('User not found')
     error.statusCode = 401
     return next(error)
   }
 
-  req.user = user
+  req.user = { ...user, entraEnabled: Boolean(user.entra_enabled), entraEmail: user.entra_email || '' }
   return next()
 }
