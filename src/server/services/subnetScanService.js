@@ -1,7 +1,5 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
+import net from 'node:net'
 import { reverse } from 'node:dns/promises'
-import process from 'node:process'
 import { nanoid } from 'nanoid'
 import { get } from '../db/client.js'
 import { decryptSecret } from '../utils/crypto.js'
@@ -9,7 +7,6 @@ import { saveMachine } from './machineService.js'
 import { executePsRemoting } from './powershellService.js'
 import { Client as SshClient } from 'ssh2'
 
-const execFileAsync = promisify(execFile)
 const sessions = new Map()
 const maxHosts = 1024
 
@@ -33,15 +30,15 @@ export function expandIpv4Cidr(value) {
   return Array.from({ length: count }, (_, index) => integerToIpv4(network + index + 1))
 }
 
-async function ping(address) {
-  const args = process.platform === 'win32' ? ['-n', '1', '-w', '1000', address] : ['-c', '1', '-W', '1', address]
-  try {
-    await execFileAsync('ping', args, { timeout: 2000, windowsHide: true })
-    return true
-  } catch (error) {
-    if (error.code === 'ENOENT') throw new Error('The POSHinit server does not have a ping executable available for subnet discovery')
-    return false
-  }
+function tcpPing(address, port) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: address, port })
+    const finish = (reachable) => { socket.destroy(); resolve(reachable) }
+    socket.setTimeout(1000)
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+  })
 }
 
 function credentialUsername(credential) {
@@ -104,7 +101,7 @@ async function runScan(session, credential) {
   try {
     session.stage = 'Pinging addresses'
     await eachLimited(session.addresses, 32, async (address) => {
-      const reachable = await ping(address)
+      const reachable = await tcpPing(address, credential.protocol === 'ssh' ? 22 : 5985)
       if (reachable) session.results.push({ address, reachable: true, hostname: '', connectionOk: false, connectionDetail: 'Waiting for DNS and connection test' })
       session.completed += 1
     })

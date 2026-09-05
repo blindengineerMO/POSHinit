@@ -1,9 +1,10 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import FloatingWindow from '../common/FloatingWindow.vue'
 import { useAppStore } from '../../stores/app'
 
 const open = defineModel({ default: false })
+const props = defineProps({ kindFilter: { type: String, default: '' } })
 const store = useAppStore()
 const step = ref(1)
 const loading = ref(false)
@@ -13,7 +14,7 @@ const imported = ref([])
 const results = ref([])
 const error = ref('')
 const wizard = reactive({ connectorId: '', defaultCredentialId: '', credentialIds: {} })
-const connectors = computed(() => store.catalog.settings.vcenter?.connectors || [])
+const connectors = computed(() => (store.catalog.settings.vcenter?.connectors || []).filter((connector) => !props.kindFilter || connector.kind === props.kindFilter))
 const credentials = computed(() => (store.catalog.credentials || []).filter((credential) => credential.protocol === 'psremoting'))
 const selectedMachines = computed(() => discovered.value.filter((machine) => selectedIds.value.includes(machine.id)))
 
@@ -24,10 +25,11 @@ function reset() {
   imported.value = []
   results.value = []
   error.value = ''
-  wizard.connectorId = ''
+  wizard.connectorId = connectors.value[0]?.id || ''
   wizard.defaultCredentialId = ''
   wizard.credentialIds = {}
 }
+watch(() => props.kindFilter, reset, { immediate: true })
 
 async function discover() {
   error.value = ''

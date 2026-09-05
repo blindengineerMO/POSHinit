@@ -158,7 +158,7 @@ For remote nodes, CLI connection attempts PowerShell Remoting first. If that att
 
 Select **Node Inventory > Scan Subnet** to open the floating subnet-discovery wizard. First enter an IPv4 CIDR and choose an existing Secret Vault username/password credential configured for PowerShell Remoting or SSH. POSHinit runs the scan from its server, not the browser, in this order:
 
-- Ping every usable address in the selected CIDR, with scans bounded to 1,024 hosts.
+- Run a dependency-free Node.js TCP reachability probe on port `5985` for PS Remoting credentials or port `22` for SSH credentials, with scans bounded to 1,024 hosts.
 - Attempt reverse DNS/PTR resolution for responsive addresses.
 - Test PS Remoting or SSH with the selected credential.
 
@@ -354,7 +354,7 @@ VMware connectors are configured in **System Settings > VMware Inventory**. Add 
 - PowerShell Remoting targets need WinRM and PS Remoting enabled (for example, `Enable-PSRemoting`) and a matching `psremoting` credential. Port `5985` uses HTTP; port `5986` opts into WinRM HTTPS.
 - VMware inventory import supports vCenter REST endpoints and standalone ESXi hosts through the native `/sdk` SOAP API; deeper VM action workflows are not yet implemented.
 - Azure Arc discovery imports only Arc-enabled server resource metadata. Imported targets still need a directly reachable WinRM endpoint and matching PowerShell Remoting credential for POSHinit execution.
-- Subnet discovery is IPv4 only and is limited to 1,024 usable addresses per scan. ICMP, reverse DNS, WinRM, and SSH results depend on the POSHinit server's own network path and firewall policy.
+- Subnet discovery is IPv4 only and is limited to 1,024 usable addresses per scan. TCP reachability, reverse DNS, WinRM, and SSH results depend on the POSHinit server's own network path and firewall policy.
 - Entra ID uses an in-memory, short-lived PKCE and callback ticket store. Run a shared session store before deploying more than one application instance.
 
 ## Security Notes

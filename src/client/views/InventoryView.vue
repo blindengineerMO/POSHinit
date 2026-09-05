@@ -9,6 +9,7 @@ import NeonPanel from '../components/common/NeonPanel.vue'
 import VmwareImportWizard from '../components/inventory/VmwareImportWizard.vue'
 import AzureArcImportWizard from '../components/inventory/AzureArcImportWizard.vue'
 import SubnetScanWizard from '../components/inventory/SubnetScanWizard.vue'
+import MachineImportWizard from '../components/inventory/MachineImportWizard.vue'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
@@ -18,6 +19,8 @@ const groupDialog = ref(false)
 const importDialog = ref(false)
 const azureArcImportDialog = ref(false)
 const subnetScanDialog = ref(false)
+const importLauncherDialog = ref(false)
+const vmwareKind = ref('')
 const nodeTab = ref('record')
 const nodeConnectionResult = ref(null)
 const selectedRun = ref(null)
@@ -83,6 +86,47 @@ watch(terminalDialog, (open) => { if (!open) closeTerminal() })
 async function saveMachine() {
   await store.saveMachine(machineDraft)
   machineDialog.value = false
+}
+
+function selectMachineImport(method) {
+  if (method === 'standalone') machineDialog.value = true
+  if (method === 'network') subnetScanDialog.value = true
+  if (method === 'azure-arc') azureArcImportDialog.value = true
+  if (method === 'vcenter' || method === 'esxi') { vmwareKind.value = method === 'esxi' ? 'esxi-host' : 'vcenter'; importDialog.value = true }
+}
+
+function inventoryRows() {
+  return (store.catalog.machines || []).map((machine) => ({
+    Name: machine.name || '', FQDN: machine.fqdn || '', Address: machine.ip_address || '', OS: machine.os_family || '', Transport: machine.transport || '', Port: machine.port || '', Source: machine.source_type || '', Status: machine.last_test_status || 'not tested',
+  }))
+}
+function downloadExport(name, type, content) {
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(new Blob([content], { type }))
+  link.download = name
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+function escapeCsv(value) { return `"${String(value ?? '').replaceAll('"', '""')}"` }
+function exportCsv() {
+  const rows = inventoryRows(); const columns = Object.keys(rows[0] || { Name: '' })
+  downloadExport('poshinit-node-inventory.csv', 'text/csv;charset=utf-8', [columns.join(','), ...rows.map((row) => columns.map((column) => escapeCsv(row[column])).join(','))].join('\n'))
+}
+function escapeXml(value) { return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;') }
+function exportXls() {
+  const rows = inventoryRows(); const columns = Object.keys(rows[0] || { Name: '' })
+  const table = `<table><tr>${columns.map((column) => `<th>${escapeXml(column)}</th>`).join('')}</tr>${rows.map((row) => `<tr>${columns.map((column) => `<td>${escapeXml(row[column])}</td>`).join('')}</tr>`).join('')}</table>`
+  downloadExport('poshinit-node-inventory.xls', 'application/vnd.ms-excel', `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${table}</body></html>`)
+}
+function escapePdf(value) { return String(value ?? '').replace(/[\\()]/g, '\\$&').replace(/[^\x20-\x7e]/g, '?') }
+function exportPdf() {
+  const rows = inventoryRows(); const lines = ['POSHinit Node Inventory', `Generated ${new Date().toLocaleString()}`, '', ...rows.flatMap((row) => [`${row.Name} | ${row.OS} | ${row.Transport} | ${row.Status}`, `${row.FQDN || row.Address} | ${row.Source}`])]
+  const content = ['BT', '/F1 10 Tf', '50 760 Td', ...lines.slice(0, 55).flatMap((line, index) => [index ? '0 -13 Td' : '', `(${escapePdf(line)}) Tj`]).filter(Boolean), 'ET'].join('\n')
+  const objects = [`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${content.length} >>\nstream\n${content}\nendstream`]
+  let pdf = '%PDF-1.4\n'; const offsets = [0]
+  objects.forEach((object, index) => { offsets.push(pdf.length); pdf += `${index + 1} 0 obj\n${object}\nendobj\n` })
+  const start = pdf.length; pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF`
+  downloadExport('poshinit-node-inventory.pdf', 'application/pdf', pdf)
 }
 
 function openNode(machine) {
@@ -210,10 +254,7 @@ onBeforeUnmount(closeTerminal)
         <h2 class="page-title">Inventory, grouping, credentials, and connection testing</h2>
       </div>
       <div class="chip-line">
-        <v-btn prepend-icon="mdi-vmware" variant="text" @click="importDialog = true">Import Virtual Machines</v-btn>
-        <v-btn prepend-icon="mdi-microsoft-azure" variant="text" @click="azureArcImportDialog = true">Import Azure Arc</v-btn>
-        <v-btn class="glass-button" prepend-icon="mdi-radar" @click="subnetScanDialog = true">Scan Subnet</v-btn>
-        <v-btn prepend-icon="mdi-plus" variant="text" @click="machineDialog = true">Add Machine</v-btn>
+        <v-btn class="glass-button" prepend-icon="mdi-server-plus-outline" @click="importLauncherDialog = true">Add Or Import Machines</v-btn>
         <v-btn prepend-icon="mdi-folder-network-outline" variant="text" @click="groupDialog = true">Create Group</v-btn>
       </div>
     </div>
@@ -221,6 +262,7 @@ onBeforeUnmount(closeTerminal)
     <div class="content-grid">
       <NeonPanel class="span-8" subtitle="Inventory Table" title="Registered Machines">
         <div class="table-pad">
+          <div class="inventory-exports"><span>Export inventory</span><v-btn size="x-small" variant="text" @click="exportCsv">CSV</v-btn><v-btn size="x-small" variant="text" @click="exportXls">XLS</v-btn><v-btn size="x-small" variant="text" @click="exportPdf">PDF</v-btn></div>
           <DataTable
             :items="store.catalog.machines || []"
             clickable
@@ -351,9 +393,10 @@ onBeforeUnmount(closeTerminal)
       </div>
     </FloatingWindow>
     <FloatingWindow v-model="terminalDialog" :title="`Remote CLI${terminalSession ? ` · ${terminalSession.transport}` : ''}`" :width="760" :start-x="270" :start-y="80"><div class="terminal-window"><div class="terminal-status"><v-icon :icon="terminalSession ? 'mdi-lan-connect' : 'mdi-lan-pending'"/><span>{{ terminalSession ? `Connected through ${terminalSession.transport} · press Enter to run commands` : terminalConnecting ? 'Establishing remote session...' : 'Connection unavailable' }}</span><v-btn size="x-small" variant="text" @click="terminalDialog = false">Disconnect</v-btn></div><div ref="terminalHost" class="xterm-host"/></div></FloatingWindow>
-    <VmwareImportWizard v-model="importDialog" />
+    <VmwareImportWizard v-model="importDialog" :kind-filter="vmwareKind" />
     <AzureArcImportWizard v-model="azureArcImportDialog" />
     <SubnetScanWizard v-model="subnetScanDialog" />
+    <MachineImportWizard v-model="importLauncherDialog" @select="selectMachineImport" />
   </div>
 </template>
 
@@ -366,6 +409,8 @@ onBeforeUnmount(closeTerminal)
 .group-list {
   padding: 20px;
 }
+
+.inventory-exports { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-bottom: 8px; color: var(--muted); font: .65rem 'Share Tech Mono', monospace; text-transform: uppercase; }
 
 .group-list {
   display: grid;
