@@ -46,6 +46,7 @@ function createTables() {
       content TEXT,
       asset_path TEXT,
       language TEXT DEFAULT 'powershell',
+      parameter_schema_json TEXT NOT NULL DEFAULT '[]',
       is_published INTEGER NOT NULL DEFAULT 0,
       notes TEXT,
       created_at TEXT NOT NULL,
@@ -227,6 +228,8 @@ function ensureUserIdentitySchema() {
   }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_entra_email_unique ON users(entra_email COLLATE NOCASE) WHERE entra_email IS NOT NULL')
 }
+
+function ensureScriptParameterSchema() { const columns = db.prepare('PRAGMA table_info(library_entries)').all().map((column) => column.name); if (!columns.includes('parameter_schema_json')) db.exec("ALTER TABLE library_entries ADD COLUMN parameter_schema_json TEXT NOT NULL DEFAULT '[]'") }
 
 function ensureScheduleWebhookSchema() {
   const columns = db.prepare('PRAGMA table_info(schedules)').all().map((column) => column.name)
@@ -563,6 +566,7 @@ export function initializeDatabase() {
   ensureUserIdentitySchema()
   ensureScheduleWebhookSchema()
   ensureCredentialSecretSchema()
+  ensureScriptParameterSchema()
   seedSettings()
   seedDemoData()
   logger.info({ dbPath: config.dbPath }, 'database initialized')

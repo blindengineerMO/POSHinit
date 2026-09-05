@@ -369,7 +369,7 @@ VMware connectors are configured in **System Settings > VMware Inventory**. Add 
 
 ## Current Constraints
 
-- Local and PowerShell Remoting targets can run through manual, scheduled, and webhook execution. SSH is available for connection testing and as a Linux-only fallback transport in the interactive Node Inventory CLI; it is not a scheduled execution transport.
+- Local, PowerShell Remoting, and SSH targets can run through manual, scheduled, and webhook execution. Scheduled SSH targets fan out concurrently per runbook and execute PowerShell through the remote `pwsh` host.
 - PowerShell Remoting targets need WinRM and PS Remoting enabled (for example, `Enable-PSRemoting`) and a matching `psremoting` credential. Port `5985` uses HTTP; port `5986` opts into WinRM HTTPS.
 - VMware inventory import supports vCenter REST endpoints and standalone ESXi hosts through the native `/sdk` SOAP API; deeper VM action workflows are not yet implemented.
 - Azure Arc discovery imports only Arc-enabled server resource metadata. Imported targets still need a directly reachable WinRM endpoint and matching PowerShell Remoting credential for POSHinit execution.
@@ -394,7 +394,6 @@ VMware connectors are configured in **System Settings > VMware Inventory**. Add 
 
 - Add approval workflows with approver UI and route enforcement
 - Add richer parameter schemas per script and per schedule
-- Add SSH-based scheduled remote execution fan-out
 - Add a shared Entra PKCE/session store for multi-instance deployments and deeper RBAC controls
 - Add notification retention controls and delivery retry visibility
 - Add streamed terminal output and long-running process support

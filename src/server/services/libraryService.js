@@ -29,7 +29,7 @@ function assetEntryPath(entry) {
 export function listLibrary() {
   return all(
     `SELECT id, parent_id, type, name, scope, owner_user_id, content, asset_path, language,
-            is_published, notes, created_at, updated_at
+            is_published, notes, parameter_schema_json, created_at, updated_at
      FROM library_entries
      ORDER BY scope, type DESC, name ASC`,
   ).map(mapEntry)
@@ -45,10 +45,10 @@ export function saveLibraryEntry(payload, userId) {
   run(
     `INSERT INTO library_entries (
        id, parent_id, type, name, scope, owner_user_id, content, asset_path, language,
-       is_published, notes, created_at, updated_at
+       is_published, notes, parameter_schema_json, created_at, updated_at
      ) VALUES (
        @id, @parentId, @type, @name, @scope, @ownerUserId, @content, @assetPath, @language,
-       @isPublished, @notes, @createdAt, @updatedAt
+       @isPublished, @notes, @parameterSchemaJson, @createdAt, @updatedAt
      )
      ON CONFLICT(id) DO UPDATE SET
        parent_id = excluded.parent_id,
@@ -60,6 +60,7 @@ export function saveLibraryEntry(payload, userId) {
        language = excluded.language,
        is_published = excluded.is_published,
        notes = excluded.notes,
+       parameter_schema_json = excluded.parameter_schema_json,
        updated_at = excluded.updated_at`,
     {
       id: entryId,
@@ -73,6 +74,7 @@ export function saveLibraryEntry(payload, userId) {
       language: payload.language || 'powershell',
       isPublished: payload.isPublished ? 1 : 0,
       notes: payload.notes || '',
+      parameterSchemaJson: JSON.stringify(Array.isArray(payload.parameterSchema) ? payload.parameterSchema : []),
       createdAt: existing?.created_at || timestamp,
       updatedAt: timestamp,
     },

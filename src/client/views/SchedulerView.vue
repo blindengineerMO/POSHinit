@@ -14,7 +14,7 @@ const runOutput = ref([])
 const dispatchRunning = ref(false)
 const webhookDetails = ref(null)
 const today = new Date().toISOString().slice(0, 10)
-const scheduleDraft = reactive({ id: '', name: '', cadence: 'daily', startDate: today, runTime: '02:00', intervalDays: 1, weekdays: [1], timezone: 'UTC', enabled: true, requireApproval: false, webhookEnabled: false, scriptIds: [], groupIds: [], machineIds: [] })
+const scheduleDraft = reactive({ id: '', name: '', cadence: 'daily', startDate: today, runTime: '02:00', intervalDays: 1, weekdays: [1], timezone: 'UTC', enabled: true, requireApproval: false, webhookEnabled: false, scriptIds: [], groupIds: [], machineIds: [], parameters: {} })
 const manualRunDraft = reactive({ scriptIds: [], machineIds: [], triggerType: 'manual' })
 const scripts = computed(() => (store.catalog.library || []).filter((entry) => entry.type === 'script'))
 const groups = computed(() => store.catalog.groups || [])
@@ -24,7 +24,7 @@ const weekdays = [{ id: 0, label: 'Sun' }, { id: 1, label: 'Mon' }, { id: 2, lab
 
 function resetSchedule() {
   webhookDetails.value = null
-  Object.assign(scheduleDraft, { id: '', name: '', cadence: 'daily', startDate: today, runTime: '02:00', intervalDays: 1, weekdays: [1], timezone: 'UTC', enabled: true, requireApproval: false, webhookEnabled: false, scriptIds: [], groupIds: [], machineIds: [] })
+  Object.assign(scheduleDraft, { id: '', name: '', cadence: 'daily', startDate: today, runTime: '02:00', intervalDays: 1, weekdays: [1], timezone: 'UTC', enabled: true, requireApproval: false, webhookEnabled: false, scriptIds: [], groupIds: [], machineIds: [], parameters: {} })
 }
 
 function toCron() {
@@ -61,6 +61,7 @@ function openSchedule(schedule = null) {
     scriptIds: [...(schedule.scriptIds || [])],
     groupIds: [...(schedule.groupIds || [])],
     machineIds: [...(schedule.machineIds || [])],
+    parameters: {},
   })
   if (schedule.webhookEnabled && store.currentUser?.role === 'admin') store.getScheduleWebhook(schedule.id).then((details) => { webhookDetails.value = details }).catch(() => {})
   scheduleWindow.value = true
@@ -82,6 +83,7 @@ async function saveSchedule() {
     scriptIds: scheduleDraft.scriptIds,
     groupIds: scheduleDraft.groupIds,
     machineIds: scheduleDraft.machineIds,
+    parameters: scheduleDraft.parameters,
   })
   if (scheduleDraft.webhookEnabled) {
     if (store.currentUser?.role === 'admin') webhookDetails.value = await store.getScheduleWebhook(savedSchedule.id)

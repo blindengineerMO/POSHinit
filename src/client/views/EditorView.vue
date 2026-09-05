@@ -17,6 +17,7 @@ const loadedRevision = ref('')
 const previewOpen = ref(false)
 const preview = ref(null)
 const fileInput = ref(null)
+const parameterSchemaText = ref('[]')
 
 const draft = reactive({
   id: '',
@@ -29,6 +30,7 @@ const draft = reactive({
   notes: '',
   isPublished: false,
   assetPath: '',
+  parameterSchema: [],
 })
 
 const libraryEntries = computed(() => store.catalog.library || [])
@@ -53,7 +55,9 @@ watch(
       notes: entry.notes || '',
       isPublished: Boolean(entry.is_published),
       assetPath: entry.asset_path || '',
+      parameterSchema: JSON.parse(entry.parameter_schema_json || '[]'),
     })
+    parameterSchemaText.value = JSON.stringify(draft.parameterSchema, null, 2)
   },
   { immediate: true },
 )
@@ -77,11 +81,13 @@ function createEntry({ parentId, type }) {
     notes: '',
     isPublished: false,
     assetPath: '',
+    parameterSchema: [],
   })
   propertiesOpen.value = true
 }
 
 async function saveEntry() {
+  try { draft.parameterSchema = JSON.parse(parameterSchemaText.value || '[]') } catch { throw new Error('Parameter schema must be valid JSON') }
   await store.saveLibraryEntry(draft)
   loadedRevision.value = ''
 }
@@ -198,6 +204,7 @@ async function openPreview() {
         <v-select v-model="draft.scope" :items="['personal', 'shared']" label="Library Scope" />
         <v-switch v-model="draft.isPublished" color="secondary" label="Published to shared consumers" />
         <v-textarea v-model="draft.notes" label="Operational notes" rows="4" />
+        <v-textarea v-if="draft.type === 'script'" v-model="parameterSchemaText" label="Parameter schema" hint='JSON array: [{"name":"ServerName","type":"string","required":true,"default":""}]' persistent-hint rows="6" />
         <div class="property-actions"><v-btn class="glass-button" prepend-icon="mdi-content-save-outline" @click="saveEntry">Save Properties</v-btn></div>
         <div v-if="validation" class="validation-block">
           <v-alert :type="validation.ok ? 'success' : 'warning'" variant="tonal">

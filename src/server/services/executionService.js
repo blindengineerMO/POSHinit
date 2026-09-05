@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid'
+import { Client as SshClient } from 'ssh2'
 import { all, get, nowIso, run } from '../db/client.js'
 import { writeLog } from './logService.js'
 import { decryptSecret } from '../utils/crypto.js'
@@ -28,6 +29,25 @@ function buildTargetMachines(scheduleId) {
   })
 
   return [...machineIds]
+}
+
+function parameterPreamble(values = {}) {
+  const encoded = Buffer.from(JSON.stringify(values), 'utf8').toString('base64')
+  return `$__poshinitParameters = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')) | ConvertFrom-Json; $__poshinitParameters.psobject.Properties | ForEach-Object { Set-Variable -Name $_.Name -Value $_.Value -Scope Local }\n`
+}
+
+function executeSshPowerShell(machine, credential, content) {
+  return new Promise((resolve, reject) => {
+    const client = new SshClient()
+    const encoded = Buffer.from(content, 'utf8').toString('base64')
+    client.on('ready', () => client.exec(`echo ${encoded} | base64 -d | pwsh -NoProfile -NonInteractive -Command -`, (error, stream) => {
+      if (error) return reject(error)
+      let stdout = ''; let stderr = ''
+      stream.on('data', (chunk) => { stdout += chunk.toString() })
+      stream.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+      stream.on('close', (code) => { client.end(); resolve({ code, stdout, stderr }) })
+    })).on('error', reject).connect({ host: machine.fqdn || machine.ip_address, port: machine.port || 22, username: credential.username, password: decryptSecret(credential.secret_encrypted), readyTimeout: 20000 })
+  })
 }
 
 async function runExecution({ triggerType, scheduleId = null, scriptId, machineId, requestedBy = null, onOutput = null }) {
@@ -67,7 +87,8 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
   let executableContent
   try {
     // Templates are resolved only in memory after the run has been recorded.
-    executableContent = injectSecretTemplates(script.content)
+    const scheduleValues = scheduleId ? JSON.parse(get('SELECT parameters_json FROM schedule_scripts WHERE schedule_id = ? AND script_id = ?', [scheduleId, scriptId])?.parameters_json || '{}') : {}
+    executableContent = parameterPreamble(scheduleValues) + injectSecretTemplates(script.content)
     if (!onOutput && machine.transport === 'local') {
       result = await executeLocalPowerShell(executableContent)
     } else if (!onOutput && machine.transport === 'psremoting') {
@@ -92,7 +113,10 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
         content: executableContent,
       })
     } else if (!onOutput) {
-      throw new Error(`Execution transport is not supported: ${machine.transport}`)
+      if (machine.transport !== 'ssh') throw new Error(`Execution transport is not supported: ${machine.transport}`)
+      const credential = machine.credential_id ? get('SELECT * FROM credentials WHERE id = ?', [machine.credential_id]) : null
+      if (!credential || credential.protocol !== 'ssh') throw new Error('SSH target requires an SSH credential')
+      result = await executeSshPowerShell(machine, credential, executableContent)
     } else {
       const credential = machine.transport === 'psremoting' ? get('SELECT * FROM credentials WHERE id = ?', [machine.credential_id]) : null
       const options = machine.transport === 'psremoting' ? { target: machine.fqdn || machine.ip_address, port: machine.port || 5985, username: credential?.domain_name ? `${credential.domain_name}\\${credential.username}` : credential?.username, password: decryptSecret(credential?.secret_encrypted || ''), content: executableContent } : null
@@ -260,16 +284,7 @@ export async function processDueSchedules() {
     const machineIds = buildTargetMachines(schedule.id)
 
     for (const scriptId of scriptIds) {
-      for (const machineId of machineIds) {
-        // eslint-disable-next-line no-await-in-loop
-        await runExecution({
-          triggerType: 'schedule',
-          scheduleId: schedule.id,
-          scriptId,
-          machineId,
-          requestedBy: schedule.created_by,
-        })
-      }
+      await Promise.all(machineIds.map((machineId) => runExecution({ triggerType: 'schedule', scheduleId: schedule.id, scriptId, machineId, requestedBy: schedule.created_by })))
     }
 
     const nextRunAt = schedule.mode === 'once' ? null : computeNextRun(schedule, new Date())
