@@ -299,6 +299,17 @@ export const useAppStore = defineStore('app', {
       this.catalog.machines = await this.api('/api/machines')
       return result
     },
+    async startSubnetScan(payload) {
+      return this.api('/api/subnet-scans', { method: 'POST', body: JSON.stringify(payload) })
+    },
+    async getSubnetScan(id) {
+      return this.api(`/api/subnet-scans/${id}`)
+    },
+    async importSubnetScan(id, machines) {
+      const result = await this.api(`/api/subnet-scans/${id}/import`, { method: 'POST', body: JSON.stringify({ machines }) })
+      this.catalog.machines = await this.api('/api/machines')
+      return result
+    },
     async searchLogs(query) {
       this.logResults = await this.api(`/api/logs?q=${encodeURIComponent(query || '')}`)
       return this.logResults

@@ -11,6 +11,7 @@ import { listGroups, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
 import { searchLogs } from '../services/logService.js'
 import { listMachines, saveCredential, saveMachine, testMachineConnection, uploadAsset } from '../services/machineService.js'
+import { getSubnetScan, importSubnetScan, startSubnetScan } from '../services/subnetScanService.js'
 import { getSettings, saveEntraSettings, saveNotificationSettings, saveSettings } from '../services/settingsService.js'
 import { getScheduleWebhook, getScheduleWebhookStatus, getWebhookSchedule, listSchedules, saveSchedule } from '../services/scheduleService.js'
 import { listTeams, saveTeam } from '../services/teamService.js'
@@ -188,6 +189,15 @@ export function createRouter() {
 
   router.post('/api/machines/:id/test', async (req, res) => {
     res.json(await testMachineConnection(req.params.id))
+  })
+  router.post('/api/subnet-scans', (req, res) => {
+    res.json(startSubnetScan(req.body))
+  })
+  router.get('/api/subnet-scans/:id', (req, res) => {
+    res.json(getSubnetScan(req.params.id))
+  })
+  router.post('/api/subnet-scans/:id/import', (req, res) => {
+    res.json(importSubnetScan(req.params.id, req.body.machines))
   })
   router.post('/api/machines/:id/terminal/connect', async (req, res) => {
     res.json(await connectTerminal(req.params.id, req.user.id))

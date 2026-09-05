@@ -154,6 +154,16 @@ The **Node Inventory** action menu can generate a standard `.rdp` file for a sel
 
 For remote nodes, CLI connection attempts PowerShell Remoting first. If that attempt fails for a Linux node, POSHinit tries SSH as a fallback. Local nodes use the server's installed PowerShell and Bash hosts. Commands remain available until the operator selects **Disconnect** or closes the terminal window, and connection attempts, command failures, and disconnects are recorded in the application log.
 
+### Subnet Discovery
+
+Select **Node Inventory > Scan Subnet** to open the floating subnet-discovery wizard. First enter an IPv4 CIDR and choose an existing Secret Vault username/password credential configured for PowerShell Remoting or SSH. POSHinit runs the scan from its server, not the browser, in this order:
+
+- Ping every usable address in the selected CIDR, with scans bounded to 1,024 hosts.
+- Attempt reverse DNS/PTR resolution for responsive addresses.
+- Test PS Remoting or SSH with the selected credential.
+
+The live scan stage shows ping progress, discovered addresses, DNS names, and connection-test outcomes. The final table includes only machines that passed the connection test, allows selecting Windows or Linux per node, and registers those selected rows only after **Complete Import**. The scan does not retain unresponsive or failed targets.
+
 ### Azure Arc Inventory
 
 Administrators configure one or more Azure Arc connectors in **System Settings > Azure Arc Inventory**. Each connector uses a Microsoft Entra application client ID, client secret, tenant ID, and Azure subscription ID. The secret is sealed at rest and is never returned to the browser.
@@ -298,6 +308,14 @@ curl -X POST "$WEBHOOK_URL" \
 
 These authenticated endpoints back the Node Inventory CLI. Connecting returns a temporary terminal session identifier and selected transport. Send a command body to the command endpoint, then explicitly disconnect when the interactive workspace is no longer needed.
 
+### Subnet Discovery
+
+- `POST /api/subnet-scans`
+- `GET /api/subnet-scans/:id`
+- `POST /api/subnet-scans/:id/import`
+
+Start a scan with `cidr` and `credentialId`, poll the returned scan ID for stage and progress details, then submit the selected passing machine addresses with an `osFamily` of `windows` or `linux` to import them.
+
 ### Notification Policies
 
 - `GET /api/notification-policies`
@@ -336,6 +354,7 @@ VMware connectors are configured in **System Settings > VMware Inventory**. Add 
 - PowerShell Remoting targets need WinRM and PS Remoting enabled (for example, `Enable-PSRemoting`) and a matching `psremoting` credential. Port `5985` uses HTTP; port `5986` opts into WinRM HTTPS.
 - VMware inventory import supports vCenter REST endpoints and standalone ESXi hosts through the native `/sdk` SOAP API; deeper VM action workflows are not yet implemented.
 - Azure Arc discovery imports only Arc-enabled server resource metadata. Imported targets still need a directly reachable WinRM endpoint and matching PowerShell Remoting credential for POSHinit execution.
+- Subnet discovery is IPv4 only and is limited to 1,024 usable addresses per scan. ICMP, reverse DNS, WinRM, and SSH results depend on the POSHinit server's own network path and firewall policy.
 - Entra ID uses an in-memory, short-lived PKCE and callback ticket store. Run a shared session store before deploying more than one application instance.
 
 ## Security Notes
