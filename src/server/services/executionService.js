@@ -7,6 +7,7 @@ import { computeNextRun, getDueSchedules, markScheduleExecuted } from './schedul
 import { injectSecretTemplates } from './secretInjectionService.js'
 import { sendExecutionAlert } from './notificationService.js'
 import { dispatchNotificationEvent } from './notificationPolicyService.js'
+import { requestScheduleApproval } from './approvalService.js'
 
 function buildTargetMachines(scheduleId) {
   const machineIds = new Set()
@@ -234,10 +235,25 @@ export async function executeScheduleWebhook(scheduleId) {
   return results
 }
 
+export async function executeApprovedSchedule(scheduleId, requestedBy) {
+  const schedule = get('SELECT id, created_by FROM schedules WHERE id = ?', [scheduleId])
+  if (!schedule) throw new Error('Schedule not found')
+  const scriptIds = all('SELECT script_id FROM schedule_scripts WHERE schedule_id = ?', [scheduleId]).map((row) => row.script_id)
+  const machineIds = buildTargetMachines(scheduleId)
+  const results = []
+  for (const scriptId of scriptIds) for (const machineId of machineIds) results.push(await runExecution({ triggerType: 'approval', scheduleId, scriptId, machineId, requestedBy }))
+  return results
+}
+
 export async function processDueSchedules() {
   const schedules = getDueSchedules()
 
   for (const schedule of schedules) {
+    if (schedule.require_approval) {
+      requestScheduleApproval(schedule)
+      markScheduleExecuted(schedule.id, schedule.mode === 'once' ? null : computeNextRun(schedule, new Date()))
+      continue
+    }
     const scriptIds = all('SELECT script_id FROM schedule_scripts WHERE schedule_id = ?', [schedule.id]).map(
       (row) => row.script_id,
     )

@@ -9,7 +9,8 @@ const compact = ref(false)
 const items = [
   { to: '/dashboard', icon: 'mdi-view-dashboard-outline', label: 'Command Deck' },
   { to: '/editor', icon: 'mdi-console-line', label: 'Script Studio' },
-  { to: '/scheduler', icon: 'mdi-calendar-clock-outline', label: 'Run Planner' },
+    { to: '/scheduler', icon: 'mdi-calendar-clock-outline', label: 'Run Planner' },
+    { to: '/approvals', icon: 'mdi-shield-check-outline', label: 'Approval Queue' },
   { to: '/reports', icon: 'mdi-pulse', label: 'Run Ledger' },
   { to: '/inventory', icon: 'mdi-server-network-outline', label: 'Node Inventory' },
   { to: '/vault', icon: 'mdi-key-variant', label: 'Secret Vault' },

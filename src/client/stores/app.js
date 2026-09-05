@@ -170,6 +170,8 @@ export const useAppStore = defineStore('app', {
       await this.refreshDashboard()
       return saved
     },
+    async listApprovals() { return this.api('/api/approvals') },
+    async decideApproval(id, status, notes = '') { const result = await this.api(`/api/approvals/${id}/decision`, { method: 'POST', body: JSON.stringify({ status, notes }) }); await this.bootstrap(); return result },
     async getScheduleWebhook(id) {
       return this.api(`/api/schedules/${id}/webhook`)
     },

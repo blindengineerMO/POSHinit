@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '../views/DashboardView.vue'
 import EditorView from '../views/EditorView.vue'
 import SchedulerView from '../views/SchedulerView.vue'
+import ApprovalsView from '../views/ApprovalsView.vue'
 import ReportsView from '../views/ReportsView.vue'
 import InventoryView from '../views/InventoryView.vue'
 import VaultView from '../views/VaultView.vue'
@@ -15,6 +16,7 @@ const router = createRouter({
     { path: '/dashboard', name: 'dashboard', component: DashboardView },
     { path: '/editor', name: 'editor', component: EditorView },
     { path: '/scheduler', name: 'scheduler', component: SchedulerView },
+    { path: '/approvals', name: 'approvals', component: ApprovalsView },
     { path: '/reports', name: 'reports', component: ReportsView },
     { path: '/inventory', name: 'inventory', component: InventoryView },
     { path: '/vault', name: 'vault', component: VaultView },

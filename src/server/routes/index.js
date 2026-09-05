@@ -6,7 +6,8 @@ import { requireAuth } from '../middleware/auth.js'
 import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
-import { executeAdHocRun, executeAdHocRunStream, executeScheduleWebhook } from '../services/executionService.js'
+import { executeAdHocRun, executeAdHocRunStream, executeApprovedSchedule, executeScheduleWebhook } from '../services/executionService.js'
+import { decideApproval, listApprovals } from '../services/approvalService.js'
 import { listGroups, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
 import { searchLogs } from '../services/logService.js'
@@ -247,6 +248,8 @@ export function createRouter() {
   router.post('/api/schedules', (req, res) => {
     res.json(saveSchedule(req.body, req.user.id))
   })
+  router.get('/api/approvals', (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator approval access is required' }); return res.json(listApprovals()) })
+  router.post('/api/approvals/:id/decision', async (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator approval access is required' }); const approval = decideApproval(req.params.id, req.body.status, req.user.id, req.body.notes); const executions = approval.status === 'approved' && approval.entity_type === 'schedule' ? await executeApprovedSchedule(approval.entity_id, req.user.id) : []; return res.json({ approval, executions }) })
 
   router.get('/api/schedules/:id/webhook', (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' })
