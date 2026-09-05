@@ -22,6 +22,12 @@ export function saveMachine(payload) {
     throw new Error(`Unsupported transport: ${transport}`)
   }
 
+  if (payload.credentialId) {
+    const credential = get('SELECT secret_type FROM credentials WHERE id = ?', [payload.credentialId])
+    if (!credential) throw new Error('Selected credential was not found')
+    if (credential.secret_type === 'token') throw new Error('Token secrets are for script injection and cannot be assigned to a machine')
+  }
+
   const machineId = payload.id || nanoid()
   const timestamp = nowIso()
   const existing = payload.id ? get('SELECT created_at FROM machines WHERE id = ?', [payload.id]) : null
@@ -187,12 +193,18 @@ export function saveCredential(payload, ownerUserId) {
     ? get('SELECT created_at FROM credentials WHERE id = ?', [payload.id])
     : null
 
+  const secretType = payload.secretType || 'username_password'
+  if (!['username_password', 'domain_password', 'token'].includes(secretType)) throw new Error('Unsupported secret type')
+  if (secretType !== 'token' && !payload.username) throw new Error('Username is required for this secret type')
+  if (secretType === 'domain_password' && !payload.domainName) throw new Error('Domain is required for a domain credential')
+  if (!payload.secretEncrypted) throw new Error('A password or token is required')
+
   run(
     `INSERT INTO credentials (
-       id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_encrypted,
+       id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_type, secret_encrypted,
        notes, created_at, updated_at
      ) VALUES (
-       @id, @name, @scope, @ownerUserId, @teamIdsJson, @username, @domainName, @protocol, @secretEncrypted,
+       @id, @name, @scope, @ownerUserId, @teamIdsJson, @username, @domainName, @protocol, @secretType, @secretEncrypted,
        @notes, @createdAt, @updatedAt
      )
      ON CONFLICT(id) DO UPDATE SET
@@ -203,6 +215,7 @@ export function saveCredential(payload, ownerUserId) {
        username = excluded.username,
        domain_name = excluded.domain_name,
        protocol = excluded.protocol,
+       secret_type = excluded.secret_type,
        secret_encrypted = excluded.secret_encrypted,
        notes = excluded.notes,
        updated_at = excluded.updated_at`,
@@ -210,11 +223,12 @@ export function saveCredential(payload, ownerUserId) {
       id: credentialId,
       name: payload.name,
       scope: payload.scope || 'personal',
-      ownerUserId,
+      ownerUserId: ownerUserId || null,
       teamIdsJson: JSON.stringify(payload.teamIds || []),
-      username: payload.username,
-      domainName: payload.domainName || '',
-      protocol: payload.protocol || 'ssh',
+      username: secretType === 'token' ? '' : payload.username,
+      domainName: secretType === 'domain_password' ? payload.domainName : '',
+      protocol: secretType === 'token' ? 'token' : payload.protocol || 'ssh',
+      secretType,
       secretEncrypted: payload.secretEncrypted,
       notes: payload.notes || '',
       createdAt: existing?.created_at || timestamp,
@@ -223,7 +237,7 @@ export function saveCredential(payload, ownerUserId) {
   )
 
   return get(
-    `SELECT id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol,
+    `SELECT id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_type,
             notes, created_at, updated_at
      FROM credentials
      WHERE id = ?`,

@@ -1,3 +1,4 @@
+![Header](public/poshinit.png)
 # POSHinit
 
 POSHinit is a web-based, API-first PowerShell control plane for multi-user script authoring, scheduling, machine inventory, credential vaulting, execution reporting, and vCenter-assisted inventory import. The current implementation runs as a single-port Express host on `4000` by default and serves a Vue 3 + Vuetify SPA.
@@ -127,9 +128,27 @@ An Entra-authenticated identity does not create an operator automatically. In **
 - Manual machine registration
 - Deployment groups
 - Stored credentials with AES-256-GCM encryption
+- Username/password, domain credentials, and token secret types
 - Per-machine credential assignment
 - Test connection action with a PowerShell hello-world validation
 - PowerShell Remoting execution through WinRM, using `Invoke-Command` and sealed credentials
+
+### Secret Templates
+
+Scripts can reference a vault entry by name with an explicit template. POSHinit resolves the template in memory immediately before execution and stores only the original, unexpanded script content.
+
+```powershell
+$username = {{secret:Operations Admin.username}}
+$password = {{secret:Operations Admin.password}}
+$domain = {{secret:Operations Admin.domain}}
+$apiToken = {{secret:GitHub Automation.token}}
+```
+
+- Username/password secrets support `.username` and `.password`.
+- Domain credentials support `.username`, `.password`, and `.domain`.
+- Token secrets support `.token`.
+- Secret names are matched case-insensitively. Resolved values are escaped as PowerShell single-quoted literals.
+- Do not write a resolved value to stdout, stderr, a transcript, or an external command line: run output is retained for reporting and can expose it.
 
 ### Scheduling And Execution
 
@@ -253,6 +272,7 @@ curl -X POST http://localhost:4000/api/vmware/import \
 
 - Helmet and CORS are enabled in the Express host.
 - Secrets are encrypted with AES-256-GCM and should be protected with a strong `VAULT_SECRET`.
+- Script templates are expanded only in the running process. The original script is retained, but intentionally printing an injected value can still disclose it through execution output.
 - SQL statements are parameterized through prepared statements in the SQLite wrapper.
 - Webhook execution requires the shared secret from `WEBHOOK_SECRET`.
 - Entra client secrets stay server-side in environment configuration; never place them in the browser or a checked-in `.env` file.

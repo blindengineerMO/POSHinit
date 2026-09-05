@@ -4,6 +4,7 @@ import { writeLog } from './logService.js'
 import { decryptSecret } from '../utils/crypto.js'
 import { executeLocalPowerShell, executePsRemoting } from './powershellService.js'
 import { computeNextRun, getDueSchedules, markScheduleExecuted } from './scheduleService.js'
+import { injectSecretTemplates } from './secretInjectionService.js'
 
 function buildTargetMachines(scheduleId) {
   const machineIds = new Set()
@@ -60,9 +61,12 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
   })
 
   let result
+  let executableContent
   try {
+    // Templates are resolved only in memory after the run has been recorded.
+    executableContent = injectSecretTemplates(script.content)
     if (machine.transport === 'local') {
-      result = await executeLocalPowerShell(script.content)
+      result = await executeLocalPowerShell(executableContent)
     } else if (machine.transport === 'psremoting') {
       const credential = machine.credential_id
         ? get('SELECT * FROM credentials WHERE id = ?', [machine.credential_id])
@@ -82,7 +86,7 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
         port: machine.port || 5985,
         username,
         password: decryptSecret(credential.secret_encrypted),
-        content: script.content,
+        content: executableContent,
       })
     } else {
       throw new Error(`Execution transport is not supported: ${machine.transport}`)

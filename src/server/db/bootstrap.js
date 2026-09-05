@@ -74,6 +74,7 @@ function createTables() {
       username TEXT NOT NULL,
       domain_name TEXT,
       protocol TEXT NOT NULL DEFAULT 'ssh',
+      secret_type TEXT NOT NULL DEFAULT 'username_password',
       secret_encrypted TEXT NOT NULL,
       notes TEXT,
       created_at TEXT NOT NULL,
@@ -220,6 +221,11 @@ function ensureScheduleWebhookSchema() {
   if (!columns.includes('webhook_key')) db.exec('ALTER TABLE schedules ADD COLUMN webhook_key TEXT')
   if (!columns.includes('webhook_token')) db.exec('ALTER TABLE schedules ADD COLUMN webhook_token TEXT')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS schedules_webhook_key_unique ON schedules(webhook_key) WHERE webhook_key IS NOT NULL')
+}
+
+function ensureCredentialSecretSchema() {
+  const columns = db.prepare('PRAGMA table_info(credentials)').all().map((column) => column.name)
+  if (!columns.includes('secret_type')) db.exec("ALTER TABLE credentials ADD COLUMN secret_type TEXT NOT NULL DEFAULT 'username_password'")
 }
 
 function seedSettings() {
@@ -539,6 +545,7 @@ export function initializeDatabase() {
   createTables()
   ensureUserIdentitySchema()
   ensureScheduleWebhookSchema()
+  ensureCredentialSecretSchema()
   seedSettings()
   seedDemoData()
   logger.info({ dbPath: config.dbPath }, 'database initialized')

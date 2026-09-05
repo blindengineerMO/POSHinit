@@ -18,12 +18,13 @@ export function getCatalog() {
     memberIds: JSON.parse(team.member_ids_json).filter(Boolean),
   }))
   const credentials = all(
-    `SELECT id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol,
+    `SELECT id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_type,
             notes, created_at, updated_at
      FROM credentials
      ORDER BY name ASC`,
   ).map((credential) => ({
     ...credential,
+    secretType: credential.secret_type || 'username_password',
     teamIds: JSON.parse(credential.team_ids_json || '[]'),
   }))
   const machines = all(
