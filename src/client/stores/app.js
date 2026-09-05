@@ -195,6 +195,15 @@ export const useAppStore = defineStore('app', {
       this.catalog.machines = await this.api('/api/machines')
       return result
     },
+    async connectTerminal(machineId) {
+      return this.api(`/api/machines/${machineId}/terminal/connect`, { method: 'POST' })
+    },
+    async runTerminalCommand(sessionId, command) {
+      return this.api(`/api/terminal/${sessionId}/command`, { method: 'POST', body: JSON.stringify({ command }) })
+    },
+    async disconnectTerminal(sessionId) {
+      await this.api(`/api/terminal/${sessionId}/disconnect`, { method: 'POST' })
+    },
     async saveGroup(group) {
       await this.api('/api/groups', {
         method: 'POST',

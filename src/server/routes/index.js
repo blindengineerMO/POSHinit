@@ -17,6 +17,7 @@ import { listTeams, saveTeam } from '../services/teamService.js'
 import { listUsers, saveUser } from '../services/userService.js'
 import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, importVmwareSelection, saveVcenterSettings } from '../services/vcenterService.js'
 import { validatePowerShell } from '../services/powershellService.js'
+import { connectTerminal, disconnectTerminal, runTerminalCommand } from '../services/terminalService.js'
 import { encryptSecret } from '../utils/crypto.js'
 import { beginEntraSignIn, consumeEnterpriseTicket, enterpriseFailureRedirect, enterpriseSignInFailure, entraStatus, finishEntraSignIn } from '../services/entraService.js'
 import { deleteNotificationPolicy, listNotificationPolicies, saveNotificationPolicy, setNotificationPolicyEnabled, testNotificationPolicy } from '../services/notificationPolicyService.js'
@@ -186,6 +187,16 @@ export function createRouter() {
 
   router.post('/api/machines/:id/test', async (req, res) => {
     res.json(await testMachineConnection(req.params.id))
+  })
+  router.post('/api/machines/:id/terminal/connect', async (req, res) => {
+    res.json(await connectTerminal(req.params.id, req.user.id))
+  })
+  router.post('/api/terminal/:sessionId/command', async (req, res) => {
+    res.json(await runTerminalCommand(req.params.sessionId, req.body.command))
+  })
+  router.post('/api/terminal/:sessionId/disconnect', (req, res) => {
+    disconnectTerminal(req.params.sessionId)
+    res.status(204).end()
   })
 
   router.post('/api/credentials', (req, res) => {

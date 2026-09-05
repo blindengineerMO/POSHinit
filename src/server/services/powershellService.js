@@ -62,7 +62,9 @@ $invokeParameters = @{
   ErrorAction = 'Stop'
 }
 if (${useSsl}) { $invokeParameters.UseSSL = $true }
-Invoke-Command @invokeParameters
+# Force remoting objects and native shell output into one concrete stdout stream.
+$remoteOutput = Invoke-Command @invokeParameters 2>&1 | Out-String -Width 4096
+Write-Output $remoteOutput
 `
 }
 

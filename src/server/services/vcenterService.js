@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid'
+import https from 'node:https'
 import { get } from '../db/client.js'
 import { decryptSecret, encryptSecret } from '../utils/crypto.js'
 import { saveGroup } from './groupService.js'
@@ -21,6 +22,23 @@ function normalizeBaseUrl(value) {
 function getSetCookie(response) {
   const values = response.headers.getSetCookie?.() || [response.headers.get('set-cookie')].filter(Boolean)
   return values.map((value) => value.split(';', 1)[0]).join('; ')
+}
+
+async function vmwareFetch(url, options = {}, ignoreTlsErrors = false) {
+  if (!ignoreTlsErrors || !String(url).startsWith('https://')) return fetch(url, options)
+  return new Promise((resolve, reject) => {
+    const request = https.request(url, { method: options.method || 'GET', headers: options.headers, rejectUnauthorized: false }, (response) => {
+      const chunks = []
+      response.on('data', (chunk) => chunks.push(chunk))
+      response.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8')
+        resolve({ ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, headers: { get: (name) => response.headers[String(name).toLowerCase()]?.toString() || null, getSetCookie: () => response.headers['set-cookie'] || [] }, text: async () => body, json: async () => JSON.parse(body) })
+      })
+    })
+    request.on('error', reject)
+    if (options.body) request.write(options.body)
+    request.end()
+  })
 }
 
 function soapEnvelope(action, body) {
@@ -55,12 +73,12 @@ function readToken(xml) {
   return match ? xmlDecode(match[1]) : ''
 }
 
-async function postSoap(baseUrl, action, body, cookie = '') {
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/sdk`, {
+async function postSoap(baseUrl, action, body, cookie = '', ignoreTlsErrors = false) {
+  const response = await vmwareFetch(`${normalizeBaseUrl(baseUrl)}/sdk`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: `\"urn:vim25/${action}\"`, ...(cookie ? { Cookie: cookie } : {}) },
     body: soapEnvelope(action, body),
-  })
+  }, ignoreTlsErrors)
   const xml = await response.text()
   const fault = getSoapFault(xml)
   if (!response.ok || fault) throw new Error(fault || `VMware SOAP ${action} failed with status ${response.status}`)
@@ -69,50 +87,50 @@ async function postSoap(baseUrl, action, body, cookie = '') {
 
 async function importStandaloneHostMachines(connector) {
   const baseUrl = normalizeBaseUrl(connector.baseUrl)
-  const content = await postSoap(baseUrl, 'RetrieveServiceContent', '<_this type="ServiceInstance">ServiceInstance</_this>')
+  const content = await postSoap(baseUrl, 'RetrieveServiceContent', '<_this type="ServiceInstance">ServiceInstance</_this>', '', connector.ignoreTlsErrors)
   const sessionManager = readReference(content.xml, 'sessionManager')
   const propertyCollector = readReference(content.xml, 'propertyCollector')
   const rootFolder = readReference(content.xml, 'rootFolder')
   const viewManager = readReference(content.xml, 'viewManager')
   if (!sessionManager || !propertyCollector || !rootFolder || !viewManager) throw new Error('Standalone host did not return the VMware SOAP service inventory')
 
-  const login = await postSoap(baseUrl, 'Login', `<_this type="${xmlEscape(sessionManager.type)}">${xmlEscape(sessionManager.value)}</_this><userName>${xmlEscape(connector.username)}</userName><password>${xmlEscape(connector.passwordPlain)}</password>`, content.cookie)
+  const login = await postSoap(baseUrl, 'Login', `<_this type="${xmlEscape(sessionManager.type)}">${xmlEscape(sessionManager.value)}</_this><userName>${xmlEscape(connector.username)}</userName><password>${xmlEscape(connector.passwordPlain)}</password>`, content.cookie, connector.ignoreTlsErrors)
   let cookie = login.cookie
   let view = null
   try {
-    const viewResponse = await postSoap(baseUrl, 'CreateContainerView', `<_this type="${xmlEscape(viewManager.type)}">${xmlEscape(viewManager.value)}</_this><container type="${xmlEscape(rootFolder.type)}">${xmlEscape(rootFolder.value)}</container><type>VirtualMachine</type><recursive>true</recursive>`, cookie)
+    const viewResponse = await postSoap(baseUrl, 'CreateContainerView', `<_this type="${xmlEscape(viewManager.type)}">${xmlEscape(viewManager.value)}</_this><container type="${xmlEscape(rootFolder.type)}">${xmlEscape(rootFolder.value)}</container><type>VirtualMachine</type><recursive>true</recursive>`, cookie, connector.ignoreTlsErrors)
     cookie = viewResponse.cookie
     view = readReference(viewResponse.xml, 'returnval')
     if (!view) throw new Error('Standalone host did not create a VM container view')
 
     const properties = '<propSet><type>VirtualMachine</type><pathSet>name</pathSet><pathSet>guest.guestFullName</pathSet><pathSet>guest.ipAddress</pathSet><pathSet>runtime.powerState</pathSet></propSet>'
     const traversal = `<objectSet><obj type="${xmlEscape(view.type)}">${xmlEscape(view.value)}</obj><skip>true</skip><selectSet xsi:type="TraversalSpec"><name>viewTraversal</name><type>ContainerView</type><path>view</path><skip>false</skip></selectSet></objectSet>`
-    let response = await postSoap(baseUrl, 'RetrievePropertiesEx', `<_this type="${xmlEscape(propertyCollector.type)}">${xmlEscape(propertyCollector.value)}</_this><specSet>${properties}${traversal}</specSet><options><maxObjects>1000</maxObjects></options>`, cookie)
+    let response = await postSoap(baseUrl, 'RetrievePropertiesEx', `<_this type="${xmlEscape(propertyCollector.type)}">${xmlEscape(propertyCollector.value)}</_this><specSet>${properties}${traversal}</specSet><options><maxObjects>1000</maxObjects></options>`, cookie, connector.ignoreTlsErrors)
     cookie = response.cookie
     const machines = parseSoapInventory(response.xml)
     let token = readToken(response.xml)
     while (token) {
-      response = await postSoap(baseUrl, 'ContinueRetrievePropertiesEx', `<_this type="${xmlEscape(propertyCollector.type)}">${xmlEscape(propertyCollector.value)}</_this><token>${xmlEscape(token)}</token>`, cookie)
+      response = await postSoap(baseUrl, 'ContinueRetrievePropertiesEx', `<_this type="${xmlEscape(propertyCollector.type)}">${xmlEscape(propertyCollector.value)}</_this><token>${xmlEscape(token)}</token>`, cookie, connector.ignoreTlsErrors)
       cookie = response.cookie
       machines.push(...parseSoapInventory(response.xml))
       token = readToken(response.xml)
     }
     return machines
   } finally {
-    if (view) await postSoap(baseUrl, 'DestroyView', `<_this type="${xmlEscape(view.type)}">${xmlEscape(view.value)}</_this>`, cookie).catch(() => {})
-    await postSoap(baseUrl, 'Logout', `<_this type="${xmlEscape(sessionManager.type)}">${xmlEscape(sessionManager.value)}</_this>`, cookie).catch(() => {})
+    if (view) await postSoap(baseUrl, 'DestroyView', `<_this type="${xmlEscape(view.type)}">${xmlEscape(view.value)}</_this>`, cookie, connector.ignoreTlsErrors).catch(() => {})
+    await postSoap(baseUrl, 'Logout', `<_this type="${xmlEscape(sessionManager.type)}">${xmlEscape(sessionManager.value)}</_this>`, cookie, connector.ignoreTlsErrors).catch(() => {})
   }
 }
 
-async function createVcenterSession(baseUrl, username, password) {
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/api/session`, { method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` } })
+async function createVcenterSession(baseUrl, username, password, ignoreTlsErrors) {
+  const response = await vmwareFetch(`${normalizeBaseUrl(baseUrl)}/api/session`, { method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` } }, ignoreTlsErrors)
   if (!response.ok) throw new Error(`vCenter session failed with status ${response.status}`)
   return response.text()
 }
 
 async function importVcenterInventory(connector) {
-  const sessionId = await createVcenterSession(connector.baseUrl, connector.username, connector.passwordPlain)
-  const response = await fetch(`${normalizeBaseUrl(connector.baseUrl)}/api/vcenter/vm`, { headers: { 'vmware-api-session-id': sessionId } })
+  const sessionId = await createVcenterSession(connector.baseUrl, connector.username, connector.passwordPlain, connector.ignoreTlsErrors)
+  const response = await vmwareFetch(`${normalizeBaseUrl(connector.baseUrl)}/api/vcenter/vm`, { headers: { 'vmware-api-session-id': sessionId } }, connector.ignoreTlsErrors)
   if (!response.ok) throw new Error(`Failed to fetch virtual machines from vCenter: ${response.status}`)
   const payload = await response.json()
   return (payload.value || payload || []).map((item) => ({ id: item.vm || item.name, name: item.name || item.vm || 'Imported VM', guestOs: item.guest_OS || '', ipAddress: '', powerState: item.power_state || '' }))
@@ -132,7 +150,7 @@ function importMachines(connector, values, credentialIds = {}) {
 export function normalizeVmwareConnectors(settings = {}) {
   if (Array.isArray(settings.connectors)) return settings.connectors
   if (!settings.baseUrl) return []
-  return [{ id: 'legacy-vcenter', kind: 'vcenter', name: 'vCenter', baseUrl: settings.baseUrl, username: settings.username || '', passwordEncrypted: settings.passwordEncrypted || '', verifyTls: Boolean(settings.verifyTls), autoImportGroupId: settings.autoImportGroupId || '' }]
+  return [{ id: 'legacy-vcenter', kind: 'vcenter', name: 'vCenter', baseUrl: settings.baseUrl, username: settings.username || '', passwordEncrypted: settings.passwordEncrypted || '', ignoreTlsErrors: settings.ignoreTlsErrors ?? false, autoImportGroupId: settings.autoImportGroupId || '' }]
 }
 
 function resolveConnector(settings, connectorId) {
@@ -171,7 +189,7 @@ export async function importVcenterMachines(settings) {
 export function saveVcenterSettings(payload) {
   const existingConnectors = normalizeVmwareConnectors(getSettings().vcenter)
   const connectors = (payload.connectors || normalizeVmwareConnectors(payload)).map((connector) => ({
-    id: connector.id || nanoid(), kind: connector.kind === 'esxi-host' ? 'esxi-host' : 'vcenter', name: connector.name || (connector.kind === 'esxi-host' ? 'Standalone ESXi Host' : 'vCenter'), baseUrl: normalizeBaseUrl(connector.baseUrl), username: connector.username || '', passwordEncrypted: connector.passwordPlain ? encryptSecret(connector.passwordPlain) : connector.passwordEncrypted || existingConnectors.find((item) => item.id === connector.id)?.passwordEncrypted || '', verifyTls: Boolean(connector.verifyTls), autoImportGroupId: connector.autoImportGroupId || '', autoImportGroupName: connector.autoImportGroupName || '',
+    id: connector.id || nanoid(), kind: connector.kind === 'esxi-host' ? 'esxi-host' : 'vcenter', name: connector.name || (connector.kind === 'esxi-host' ? 'Standalone ESXi Host' : 'vCenter'), baseUrl: normalizeBaseUrl(connector.baseUrl), username: connector.username || '', passwordEncrypted: connector.passwordPlain ? encryptSecret(connector.passwordPlain) : connector.passwordEncrypted || existingConnectors.find((item) => item.id === connector.id)?.passwordEncrypted || '', ignoreTlsErrors: Boolean(connector.ignoreTlsErrors), autoImportGroupId: connector.autoImportGroupId || '', autoImportGroupName: connector.autoImportGroupName || '',
   }))
   const saved = saveSettings('vcenter', { connectors })
   return {

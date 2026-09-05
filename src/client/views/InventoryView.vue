@@ -1,5 +1,8 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import '@xterm/xterm/css/xterm.css'
 import DataTable from '../components/common/DataTable.vue'
 import FloatingWindow from '../components/common/FloatingWindow.vue'
 import NeonPanel from '../components/common/NeonPanel.vue'
@@ -14,6 +17,14 @@ const importDialog = ref(false)
 const nodeTab = ref('record')
 const nodeConnectionResult = ref(null)
 const selectedRun = ref(null)
+const terminalDialog = ref(false)
+const terminalSession = ref(null)
+const terminalConnecting = ref(false)
+const terminalHost = ref(null)
+let terminal
+let fitAddon
+let resizeObserver
+let commandBuffer = ''
 
 const machineDraft = reactive({
   name: '',
@@ -63,6 +74,7 @@ watch(() => machineDraft.transport, (transport) => {
   machineDraft.port = transport === 'psremoting' ? 5985 : transport === 'ssh' ? 22 : 0
   machineDraft.credentialId = ''
 })
+watch(terminalDialog, (open) => { if (!open) closeTerminal() })
 
 async function saveMachine() {
   await store.saveMachine(machineDraft)
@@ -106,6 +118,84 @@ async function testNodeConnection() {
     nodeConnectionResult.value = { ok: false, stdout: '', stderr: error.message }
   }
 }
+
+function downloadRdp(machine) {
+  const address = machine.fqdn || machine.ip_address
+  if (!address) return
+  const content = `full address:s:${address}\nprompt for credentials:i:1\nauthentication level:i:2\nredirectclipboard:i:1\n`
+  const blob = new Blob([content], { type: 'application/x-rdp' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = `${machine.name.replace(/[^a-z0-9_-]/gi, '_') || 'node'}.rdp`
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+async function openTerminal(machine) {
+  terminalDialog.value = true
+  terminalSession.value = null
+  await nextTick()
+  createTerminal()
+  writeTerminal(`\x1b[36mConnecting to ${machine.name}: PowerShell Remoting first${machine.os_family === 'linux' ? ', SSH fallback enabled' : ''}.\x1b[0m\r\n`)
+  terminalConnecting.value = true
+  try {
+    const connected = await store.connectTerminal(machine.id)
+    terminalSession.value = connected
+    writeTerminal(`\x1b[32mConnected via ${connected.transport}.\x1b[0m\r\n${connected.output || ''}`)
+    promptTerminal()
+  } catch (error) {
+    writeTerminal(`\x1b[31m${error.message}\x1b[0m\r\n`)
+  } finally { terminalConnecting.value = false }
+}
+
+function writeTerminal(value) { terminal?.write(String(value || '').replace(/\n/g, '\r\n')) }
+function promptTerminal() { writeTerminal('\x1b[35mposhinit> \x1b[0m') }
+
+async function submitTerminalCommand() {
+  const command = commandBuffer.trim()
+  if (!command || !terminalSession.value || terminalConnecting.value) return
+  writeTerminal('\r\n')
+  commandBuffer = ''
+  terminalConnecting.value = true
+  try {
+    const result = await store.runTerminalCommand(terminalSession.value.id, command)
+    if (result.stdout) writeTerminal(`${result.stdout}\r\n`)
+    if (result.stderr) writeTerminal(`\x1b[31m${result.stderr}\x1b[0m\r\n`)
+    if (!result.stdout && !result.stderr) writeTerminal('\x1b[90m[command completed with no output]\x1b[0m\r\n')
+  } catch (error) { writeTerminal(`\x1b[31m${error.message}\x1b[0m\r\n`) }
+  finally { terminalConnecting.value = false; promptTerminal() }
+}
+
+function createTerminal() {
+  terminal?.dispose()
+  resizeObserver?.disconnect()
+  commandBuffer = ''
+  terminal = new Terminal({ cursorBlink: true, convertEol: true, fontFamily: 'Azeret Mono, monospace', fontSize: 13, theme: { background: '#03070b', foreground: '#d5f3ff', cursor: '#46d6ff', black: '#03070b', brightBlack: '#62808c', green: '#7ee7b3', brightGreen: '#7ee7b3', red: '#ff9dbd', brightRed: '#ff9dbd', magenta: '#ee9cff', brightMagenta: '#ee9cff', cyan: '#46d6ff', brightCyan: '#46d6ff' } })
+  fitAddon = new FitAddon()
+  terminal.loadAddon(fitAddon)
+  terminal.open(terminalHost.value)
+  fitAddon.fit()
+  resizeObserver = new ResizeObserver(() => fitAddon?.fit())
+  resizeObserver.observe(terminalHost.value)
+  terminal.onData((data) => {
+    if (!terminalSession.value || terminalConnecting.value) return
+    if (data === '\r') { submitTerminalCommand(); return }
+    if (data === '\u007f') { if (commandBuffer) { commandBuffer = commandBuffer.slice(0, -1); terminal.write('\b \b') } return }
+    if (data >= ' ' && data !== '\u007f') { commandBuffer += data; terminal.write(data) }
+  })
+  terminal.focus()
+}
+
+function closeTerminal() {
+  const sessionId = terminalSession.value?.id
+  terminal?.dispose()
+  resizeObserver?.disconnect()
+  terminal = null
+  resizeObserver = null
+  terminalSession.value = null
+  if (sessionId) void store.disconnectTerminal(sessionId).catch(() => {})
+}
+onBeforeUnmount(closeTerminal)
 </script>
 
 <template>
@@ -135,6 +225,7 @@ async function testNodeConnection() {
               { key: 'transport', label: 'Transport' },
               { key: 'os_family', label: 'OS' },
               { key: 'last_test_status', label: 'Last Test' },
+              { key: 'actions', label: 'Actions' },
             ]"
           >
             <template #name="{ row }">
@@ -143,6 +234,7 @@ async function testNodeConnection() {
                 <span class="open-node">Open node</span>
               </div>
             </template>
+            <template #actions="{ row }"><div class="row-actions"><v-btn size="x-small" variant="text" prepend-icon="mdi-console-line" @click.stop="openTerminal(row)">CLI</v-btn><v-btn size="x-small" variant="text" prepend-icon="mdi-monitor-arrow-down-variant" :disabled="!row.fqdn && !row.ip_address" @click.stop="downloadRdp(row)">RDP</v-btn></div></template>
           </DataTable>
         </div>
       </NeonPanel>
@@ -252,6 +344,7 @@ async function testNodeConnection() {
         </v-window>
       </div>
     </FloatingWindow>
+    <FloatingWindow v-model="terminalDialog" :title="`Remote CLI${terminalSession ? ` · ${terminalSession.transport}` : ''}`" :width="760" :start-x="270" :start-y="80"><div class="terminal-window"><div class="terminal-status"><v-icon :icon="terminalSession ? 'mdi-lan-connect' : 'mdi-lan-pending'"/><span>{{ terminalSession ? `Connected through ${terminalSession.transport} · press Enter to run commands` : terminalConnecting ? 'Establishing remote session...' : 'Connection unavailable' }}</span><v-btn size="x-small" variant="text" @click="terminalDialog = false">Disconnect</v-btn></div><div ref="terminalHost" class="xterm-host"/></div></FloatingWindow>
     <VmwareImportWizard v-model="importDialog" />
   </div>
 </template>
@@ -292,6 +385,7 @@ async function testNodeConnection() {
 }
 
 .open-node { color: var(--cyan); font: .62rem 'Share Tech Mono', monospace; text-transform: uppercase; }
+.row-actions { display: flex; gap: 2px; white-space: nowrap; }
 
 .node-workspace, .connection-pane, .history-pane { display: grid; gap: 14px; }
 .node-banner, .connection-summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border: 1px solid var(--line); background: rgba(40, 211, 255, .04); }
@@ -315,6 +409,8 @@ async function testNodeConnection() {
 .error-block {
   color: #ffb2ca;
 }
+
+.terminal-window { display: grid; gap: 10px; }.terminal-status { display: flex; gap: 8px; align-items: center; padding: 9px 11px; border: 1px solid var(--line); color: var(--cyan); font: .75rem 'Share Tech Mono', monospace; }.terminal-status .v-btn { margin-left: auto; }.xterm-host { min-height: 390px; padding: 10px; overflow: hidden; border: 1px solid rgba(40, 211, 255, .34); background: #03070b; box-shadow: inset 0 0 38px rgba(40, 211, 255, .035); }.xterm-host :deep(.xterm) { height: 390px; }.xterm-host :deep(.xterm-viewport) { scrollbar-color: rgba(70, 214, 255, .42) #03070b; }
 
 @media (max-width: 720px) { .node-form-grid { grid-template-columns: 1fr; }.connection-summary { align-items: flex-start; flex-direction: column; }.node-tab-content { min-height: 0; } }
 </style>
