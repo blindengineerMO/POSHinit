@@ -6,13 +6,13 @@ import { requireAuth } from '../middleware/auth.js'
 import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
-import { executeAdHocRun } from '../services/executionService.js'
+import { executeAdHocRun, executeScheduleWebhook } from '../services/executionService.js'
 import { listGroups, saveGroup } from '../services/groupService.js'
-import { deleteLibraryEntry, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
+import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
 import { searchLogs } from '../services/logService.js'
 import { listMachines, saveCredential, saveMachine, testMachineConnection, uploadAsset } from '../services/machineService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
-import { listSchedules, saveSchedule } from '../services/scheduleService.js'
+import { getScheduleWebhook, getScheduleWebhookStatus, getWebhookSchedule, listSchedules, saveSchedule } from '../services/scheduleService.js'
 import { listTeams, saveTeam } from '../services/teamService.js'
 import { listUsers, saveUser } from '../services/userService.js'
 import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, importVmwareSelection, saveVcenterSettings } from '../services/vcenterService.js'
@@ -80,6 +80,32 @@ export function createRouter() {
     )
   })
 
+  function webhookToken(req) {
+    const authorization = req.headers.authorization || ''
+    return req.headers['x-poshinit-webhook-token'] || (authorization.startsWith('Bearer ') ? authorization.slice(7) : '')
+  }
+
+  function verifiedScheduleWebhook(req, res) {
+    const schedule = getWebhookSchedule(req.params.scheduleId, req.params.webhookKey)
+    if (!schedule || webhookToken(req) !== schedule.webhook_token) {
+      res.status(401).json({ error: 'Invalid webhook credentials' })
+      return null
+    }
+    return schedule
+  }
+
+  router.get('/webhooks/schedules/:scheduleId/:webhookKey', (req, res) => {
+    const schedule = verifiedScheduleWebhook(req, res)
+    if (schedule) res.json(getScheduleWebhookStatus(schedule.id))
+  })
+
+  router.post('/webhooks/schedules/:scheduleId/:webhookKey', async (req, res) => {
+    const schedule = verifiedScheduleWebhook(req, res)
+    if (!schedule) return
+    const executions = await executeScheduleWebhook(schedule.id)
+    return res.json({ schedule: getScheduleWebhookStatus(schedule.id), executions })
+  })
+
   router.use('/api', requireAuth)
 
   router.post('/api/auth/logout', (req, res) => {
@@ -117,8 +143,32 @@ export function createRouter() {
     res.json(listScriptVersions(req.params.id))
   })
 
+  router.get('/api/library/:id/preview', (req, res) => {
+    const preview = getLibraryPreview(req.params.id)
+    if (!preview) return res.status(404).json({ error: 'Library entry not found' })
+    return res.json(preview)
+  })
+
+  router.get('/api/library/:id/file', (req, res) => {
+    const asset = getLibraryAsset(req.params.id)
+    if (!asset?.fullPath) return res.status(404).json({ error: 'Library file not found' })
+    return res.sendFile(asset.fullPath)
+  })
+
+  router.get('/api/library/:id/download', (req, res) => {
+    const asset = getLibraryAsset(req.params.id)
+    if (!asset) return res.status(404).json({ error: 'Library entry not found' })
+    if (asset.fullPath) return res.download(asset.fullPath, asset.entry.name)
+    return res.attachment(asset.entry.name).type('text/plain').send(asset.entry.content || '')
+  })
+
   router.post('/api/library/assets', upload.single('file'), (req, res) => {
     res.json(uploadAsset(req.file))
+  })
+
+  router.post('/api/library/import', upload.single('file'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'A file is required' })
+    return res.json(importLibraryFile(req.file, req.body, req.user.id))
   })
 
   router.post('/api/scripts/validate', async (req, res) => {
@@ -163,6 +213,13 @@ export function createRouter() {
 
   router.post('/api/schedules', (req, res) => {
     res.json(saveSchedule(req.body, req.user.id))
+  })
+
+  router.get('/api/schedules/:id/webhook', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' })
+    const webhook = getScheduleWebhook(req.params.id)
+    if (!webhook?.webhook_enabled) return res.status(404).json({ error: 'Webhook is not enabled for this schedule' })
+    return res.json({ url: `${config.publicAppUrl}/webhooks/schedules/${webhook.id}/${webhook.webhook_key}`, token: webhook.webhook_token })
   })
 
   router.post('/api/executions/run', async (req, res) => {

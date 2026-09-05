@@ -163,6 +163,25 @@ export async function executeAdHocRun(payload, requestedBy) {
   return results
 }
 
+export async function executeScheduleWebhook(scheduleId) {
+  const schedule = get('SELECT id, created_by FROM schedules WHERE id = ?', [scheduleId])
+  if (!schedule) {
+    throw new Error('Schedule not found')
+  }
+  const scriptIds = all('SELECT script_id FROM schedule_scripts WHERE schedule_id = ?', [scheduleId]).map((row) => row.script_id)
+  const machineIds = buildTargetMachines(scheduleId)
+  const results = []
+
+  for (const scriptId of scriptIds) {
+    for (const machineId of machineIds) {
+      // Sequential execution preserves ordered webhook results and prevents target contention.
+      // eslint-disable-next-line no-await-in-loop
+      results.push(await runExecution({ triggerType: 'schedule-webhook', scheduleId, scriptId, machineId, requestedBy: schedule.created_by }))
+    }
+  }
+  return results
+}
+
 export async function processDueSchedules() {
   const schedules = getDueSchedules()
 

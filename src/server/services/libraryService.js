@@ -11,6 +11,20 @@ function mapEntry(entry) {
   }
 }
 
+function assetKind(file) {
+  const extension = path.extname(file.originalname).toLowerCase()
+  if (['.ps1', '.psm1', '.psd1'].includes(extension)) return 'script'
+  if (file.mimetype?.startsWith('image/')) return 'image'
+  return 'file'
+}
+
+function assetEntryPath(entry) {
+  if (!entry?.asset_path) return null
+  const fullPath = path.resolve(config.rootDir, entry.asset_path)
+  const uploadsPath = path.resolve(config.uploadsDir)
+  return fullPath.startsWith(`${uploadsPath}${path.sep}`) ? fullPath : null
+}
+
 export function listLibrary() {
   return all(
     `SELECT id, parent_id, type, name, scope, owner_user_id, content, asset_path, language,
@@ -80,11 +94,32 @@ export function saveLibraryEntry(payload, userId) {
   return mapEntry(get('SELECT * FROM library_entries WHERE id = ?', [entryId]))
 }
 
+export function importLibraryFile(file, payload, userId) {
+  const type = assetKind(file)
+  const content = type === 'script' ? fs.readFileSync(file.path, 'utf8') : ''
+  return saveLibraryEntry({ parentId: payload.parentId || '', type, name: payload.name || file.originalname, scope: payload.scope || 'personal', content, assetPath: path.relative(config.rootDir, file.path), language: type === 'script' ? 'powershell' : type, notes: payload.notes || `Imported file (${file.mimetype || 'unknown type'}).`, isPublished: payload.isPublished === 'true' || payload.isPublished === true }, userId)
+}
+
+export function getLibraryAsset(entryId) {
+  const entry = get('SELECT id, name, type, content, asset_path FROM library_entries WHERE id = ?', [entryId])
+  if (!entry) return null
+  return { entry, fullPath: assetEntryPath(entry) }
+}
+
+export function getLibraryPreview(entryId) {
+  const asset = getLibraryAsset(entryId)
+  if (!asset) return null
+  if (asset.entry.type === 'script' || asset.entry.type === 'text') return { kind: 'text', name: asset.entry.name, content: asset.entry.content || '' }
+  if (asset.entry.type === 'image' && asset.fullPath) return { kind: 'image', name: asset.entry.name }
+  if (asset.fullPath && fs.statSync(asset.fullPath).size <= 1024 * 1024) return { kind: 'text', name: asset.entry.name, content: fs.readFileSync(asset.fullPath, 'utf8') }
+  return { kind: 'unavailable', name: asset.entry.name }
+}
+
 export function deleteLibraryEntry(id) {
   const entry = get('SELECT asset_path FROM library_entries WHERE id = ?', [id])
   if (entry?.asset_path) {
-    const fullPath = path.join(config.rootDir, entry.asset_path)
-    if (fs.existsSync(fullPath)) {
+    const fullPath = assetEntryPath(entry)
+    if (fullPath && fs.existsSync(fullPath)) {
       fs.rmSync(fullPath, { force: true })
     }
   }

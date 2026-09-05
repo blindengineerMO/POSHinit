@@ -14,6 +14,9 @@ const versionsOpen = ref(false)
 const validation = ref(null)
 const selectedId = ref('')
 const loadedRevision = ref('')
+const previewOpen = ref(false)
+const preview = ref(null)
+const fileInput = ref(null)
 
 const draft = reactive({
   id: '',
@@ -25,6 +28,7 @@ const draft = reactive({
   language: 'powershell',
   notes: '',
   isPublished: false,
+  assetPath: '',
 })
 
 const libraryEntries = computed(() => store.catalog.library || [])
@@ -48,6 +52,7 @@ watch(
       language: entry.language || 'powershell',
       notes: entry.notes || '',
       isPublished: Boolean(entry.is_published),
+      assetPath: entry.asset_path || '',
     })
   },
   { immediate: true },
@@ -71,6 +76,7 @@ function createEntry({ parentId, type }) {
     content: type === 'script' ? "Write-Output 'Hello from POSHinit'" : '',
     notes: '',
     isPublished: false,
+    assetPath: '',
   })
   propertiesOpen.value = true
 }
@@ -107,10 +113,44 @@ function loadRevision(version) {
   loadedRevision.value = version.version_label
   versionsOpen.value = false
 }
+
+function chooseImport() {
+  fileInput.value?.click()
+}
+
+async function importFile(event) {
+  const [file] = event.target.files || []
+  if (!file) return
+  const entry = await store.importLibraryFile(file, { parentId: draft.parentId, scope: draft.scope, isPublished: draft.isPublished })
+  selectedId.value = entry.id
+  event.target.value = ''
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+async function downloadEntry() {
+  if (draft.id) downloadBlob(await store.downloadLibraryFile(draft.id), draft.name || 'library-export')
+}
+
+async function openPreview() {
+  if (!draft.id) return
+  const result = await store.previewLibraryFile(draft.id)
+  if (result.kind === 'image') result.url = URL.createObjectURL(await store.readLibraryFile(draft.id))
+  preview.value = result
+  previewOpen.value = true
+}
 </script>
 
 <template>
   <div class="page-grid">
+    <input ref="fileInput" class="file-input" type="file" @change="importFile" />
     <div class="toolbar-row">
       <div>
         <p class="section-eyebrow">Script Studio</p>
@@ -120,13 +160,17 @@ function loadRevision(version) {
         <v-btn class="glass-button" prepend-icon="mdi-folder-open-outline" @click="explorerOpen = true">Open Library</v-btn>
         <v-btn prepend-icon="mdi-tune-vertical" variant="text" @click="propertiesOpen = true">Properties</v-btn>
         <v-btn prepend-icon="mdi-file-compare" variant="text" @click="loadVersions">Version History</v-btn>
+        <v-btn prepend-icon="mdi-upload" variant="text" @click="chooseImport">Import File</v-btn>
+        <v-btn :disabled="!draft.id" prepend-icon="mdi-eye-outline" variant="text" @click="openPreview">Preview</v-btn>
+        <v-btn :disabled="!draft.id" prepend-icon="mdi-download" variant="text" @click="downloadEntry">Export</v-btn>
         <v-btn prepend-icon="mdi-check-decagram-outline" variant="text" @click="runValidation">Syntax Check</v-btn>
         <v-btn color="primary" prepend-icon="mdi-content-save-outline" @click="saveEntry">Save</v-btn>
       </div>
     </div>
 
     <NeonPanel subtitle="Script Studio" title="Script Authoring">
-      <div class="editor-stage"><ScriptEditor v-model="draft.content" /></div>
+      <div v-if="draft.type === 'script' || draft.type === 'text'" class="editor-stage"><ScriptEditor v-model="draft.content" /></div>
+      <div v-else class="asset-stage"><v-icon :icon="draft.type === 'image' ? 'mdi-image-outline' : draft.type === 'folder' ? 'mdi-folder-outline' : 'mdi-file-outline'" size="44" /><strong>{{ draft.name || 'Library item' }}</strong><span>{{ draft.assetPath ? 'Imported asset. Use Preview or Export from the command bar.' : 'Select or import a file to work with it here.' }}</span></div>
       <div v-if="loadedRevision" class="revision-loaded">
         <v-icon icon="mdi-history" />
         <span>{{ loadedRevision }} loaded into the draft. Save to make it the current revision.</span>
@@ -150,7 +194,7 @@ function loadRevision(version) {
     <FloatingWindow v-model="propertiesOpen" title="Script Properties" :width="400" :start-x="430" :start-y="132">
       <div class="editor-meta">
         <v-text-field v-model="draft.name" label="Name" />
-        <v-select v-model="draft.type" :items="['script', 'folder', 'text']" label="Entry Type" />
+        <v-select v-model="draft.type" :items="['script', 'folder', 'text', 'file', 'image']" label="Entry Type" />
         <v-select v-model="draft.scope" :items="['personal', 'shared']" label="Library Scope" />
         <v-switch v-model="draft.isPublished" color="secondary" label="Published to shared consumers" />
         <v-textarea v-model="draft.notes" label="Operational notes" rows="4" />
@@ -176,6 +220,7 @@ function loadRevision(version) {
         <p v-if="!scriptVersions.length" class="muted">No saved revisions are available for this entry.</p>
       </div>
     </FloatingWindow>
+    <FloatingWindow v-model="previewOpen" :title="`Preview: ${preview?.name || ''}`" :width="680" :start-x="330" :start-y="120"><div v-if="preview" class="file-preview"><img v-if="preview.kind === 'image'" :src="preview.url" :alt="preview.name" /><pre v-else-if="preview.kind === 'text'">{{ preview.content || 'This file is empty.' }}</pre><div v-else class="asset-stage"><v-icon icon="mdi-file-question-outline" size="42" /><span>This file cannot be previewed safely. Export it to inspect it locally.</span></div></div></FloatingWindow>
   </div>
 </template>
 
@@ -185,6 +230,7 @@ function loadRevision(version) {
 }
 
 .editor-stage { padding: 14px; }
+.asset-stage { display:grid; min-height:520px; place-items:center; align-content:center; gap:12px; padding:24px; color:var(--muted); text-align:center; border:1px dashed var(--line); }.asset-stage strong { color:var(--text); }.file-input { display:none; }.file-preview { display:grid; max-height:62vh; overflow:auto; }.file-preview img { max-width:100%; max-height:56vh; margin:auto; }.file-preview pre { margin:0; padding:14px; white-space:pre-wrap; overflow-wrap:anywhere; color:#9fd7ff; background:rgba(3,6,14,.78); font:12px 'Azeret Mono',monospace; }
 
 .revision-loaded {
   display: flex;

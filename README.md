@@ -10,6 +10,7 @@ This repository now contains a runnable greenfield foundation with:
 - Monaco-based script editor
 - PowerShell parser-backed syntax validation
 - Personal and shared script library model with revision history
+- Script library import, preview, and export for PowerShell and supporting files
 - Machine inventory, deployment groups, and local, SSH, and PowerShell Remoting connection testing
 - Credential vault with encrypted secret storage
 - Schedule builder for one-time and recurring runs
@@ -18,6 +19,7 @@ This repository now contains a runnable greenfield foundation with:
 - Local authentication plus Microsoft Entra ID enterprise sign-in with tenant-managed MFA
 - VMware connector registry for vCenter REST and standalone ESXi SOAP inventory import
 - Webhook-triggered execution with a shared secret
+- Per-schedule webhook endpoints with independent path keys and header tokens
 
 ## Stack
 
@@ -118,6 +120,7 @@ An Entra-authenticated identity does not create an operator automatically. In **
 - Revision history storage
 - PowerShell syntax validation using the PowerShell parser
 - Floating library explorer with contextual creation and delete actions
+- Import PowerShell scripts, images, and supporting files; preview safe text/images and export any library entry
 
 ### Inventory And Credentials
 
@@ -135,6 +138,7 @@ An Entra-authenticated identity does not create an operator automatically. In **
 - Manual ad hoc execution
 - Scheduled execution polling loop
 - Webhook-triggered execution
+- Optional per-schedule webhook triggers with status polling
 
 ### Reporting And Logs
 
@@ -208,6 +212,22 @@ curl -X POST http://localhost:4000/webhooks/execute \
   -H 'x-poshinit-webhook-secret: poshinit-webhook-secret' \
   -d '{"scriptIds":["SCRIPT_ID"],"machineIds":["MACHINE_ID"]}'
 ```
+
+### Schedule Webhooks
+
+Enable **Schedule Webhook** in the schedule composer and save the schedule. The administrator-only editor view reveals a generated webhook address and header token. The address itself includes a random path key; callers must also include the header token.
+
+```bash
+# Read schedule and latest execution status
+curl "$WEBHOOK_URL" \
+  -H "x-poshinit-webhook-token: $WEBHOOK_TOKEN"
+
+# Run the schedule's configured scripts and targets now
+curl -X POST "$WEBHOOK_URL" \
+  -H "x-poshinit-webhook-token: $WEBHOOK_TOKEN"
+```
+
+`POST` accepts an empty request body and does not alter the schedule's normal next-run time. `GET` returns schedule state, whether an execution is running, and the latest execution status. Treat both the random URL and token as secrets; never put them in public monitoring dashboards or source control.
 
 ### VMware Import
 

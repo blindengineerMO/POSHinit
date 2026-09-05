@@ -56,6 +56,11 @@ export const useAppStore = defineStore('app', {
 
       return response.json()
     },
+    async apiBlob(path) {
+      const response = await fetch(path, { headers: this.token ? { Authorization: `Bearer ${this.token}` } : {} })
+      if (!response.ok) throw new Error(`Download failed with status ${response.status}`)
+      return response.blob()
+    },
     async login(email, password) {
       this.loading = true
       this.lastError = ''
@@ -131,6 +136,25 @@ export const useAppStore = defineStore('app', {
       await this.api(`/api/library/${id}`, { method: 'DELETE' })
       this.catalog.library = await this.api('/api/library')
     },
+    async importLibraryFile(file, metadata = {}) {
+      const body = new FormData()
+      body.append('file', file)
+      Object.entries(metadata).forEach(([key, value]) => body.append(key, value || ''))
+      const response = await fetch('/api/library/import', { method: 'POST', headers: this.token ? { Authorization: `Bearer ${this.token}` } : {}, body })
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || 'File import failed')
+      const entry = await response.json()
+      this.catalog.library = await this.api('/api/library')
+      return entry
+    },
+    async previewLibraryFile(id) {
+      return this.api(`/api/library/${id}/preview`)
+    },
+    async downloadLibraryFile(id) {
+      return this.apiBlob(`/api/library/${id}/download`)
+    },
+    async readLibraryFile(id) {
+      return this.apiBlob(`/api/library/${id}/file`)
+    },
     async validateScript(content) {
       return this.api('/api/scripts/validate', {
         method: 'POST',
@@ -138,12 +162,16 @@ export const useAppStore = defineStore('app', {
       })
     },
     async saveSchedule(schedule) {
-      await this.api('/api/schedules', {
+      const saved = await this.api('/api/schedules', {
         method: 'POST',
         body: JSON.stringify(schedule),
       })
       this.catalog.schedules = await this.api('/api/schedules')
       await this.refreshDashboard()
+      return saved
+    },
+    async getScheduleWebhook(id) {
+      return this.api(`/api/schedules/${id}/webhook`)
     },
     async runScripts(payload) {
       const results = await this.api('/api/executions/run', {

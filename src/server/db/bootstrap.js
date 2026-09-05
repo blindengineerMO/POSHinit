@@ -126,6 +126,9 @@ function createTables() {
       run_at TEXT,
       status TEXT NOT NULL DEFAULT 'enabled',
       require_approval INTEGER NOT NULL DEFAULT 0,
+      webhook_enabled INTEGER NOT NULL DEFAULT 0,
+      webhook_key TEXT,
+      webhook_token TEXT,
       next_run_at TEXT,
       last_run_at TEXT,
       created_by TEXT,
@@ -209,6 +212,14 @@ function ensureUserIdentitySchema() {
     db.exec('ALTER TABLE users ADD COLUMN entra_email TEXT')
   }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_entra_email_unique ON users(entra_email COLLATE NOCASE) WHERE entra_email IS NOT NULL')
+}
+
+function ensureScheduleWebhookSchema() {
+  const columns = db.prepare('PRAGMA table_info(schedules)').all().map((column) => column.name)
+  if (!columns.includes('webhook_enabled')) db.exec('ALTER TABLE schedules ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0')
+  if (!columns.includes('webhook_key')) db.exec('ALTER TABLE schedules ADD COLUMN webhook_key TEXT')
+  if (!columns.includes('webhook_token')) db.exec('ALTER TABLE schedules ADD COLUMN webhook_token TEXT')
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS schedules_webhook_key_unique ON schedules(webhook_key) WHERE webhook_key IS NOT NULL')
 }
 
 function seedSettings() {
@@ -527,6 +538,7 @@ function seedDemoData() {
 export function initializeDatabase() {
   createTables()
   ensureUserIdentitySchema()
+  ensureScheduleWebhookSchema()
   seedSettings()
   seedDemoData()
   logger.info({ dbPath: config.dbPath }, 'database initialized')
