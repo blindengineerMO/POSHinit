@@ -2,7 +2,7 @@ import { Client as SshClient } from 'ssh2'
 import { nanoid } from 'nanoid'
 import { get } from '../db/client.js'
 import { decryptSecret } from '../utils/crypto.js'
-import { executeLocalPowerShell, executePsRemoting } from './powershellService.js'
+import { executeLocalPowerShell, executePsRemoting, streamLocalPowerShell, streamPsRemoting } from './powershellService.js'
 import { writeLog } from './logService.js'
 
 const sessions = new Map()
@@ -108,9 +108,33 @@ export async function runTerminalCommand(sessionId, command) {
   }
 }
 
+export function streamTerminalCommand(sessionId, command, emit) {
+  const session = sessions.get(sessionId)
+  if (!session) throw new Error('Terminal session expired. Connect again.')
+  const safeCommand = String(command || '').trim()
+  if (!safeCommand) { emit({ type: 'complete', code: 0 }); return () => {} }
+  if (session.activeCommand) throw new Error('A terminal command is already running')
+  const finish = (code) => { if (!session.activeCommand) return; session.activeCommand = null; writeLog('info', 'terminal', 'CLI command completed', { machineId: session.machine.id, sessionId, code }); emit({ type: 'complete', code }) }
+  const fail = (error) => { if (!session.activeCommand) return; session.activeCommand = null; emit({ type: 'stderr', data: error.message }); emit({ type: 'complete', code: 1 }) }
+  if (session.transport === 'ssh') {
+    const client = new SshClient(); session.activeCommand = { cancel: () => client.end() }
+    client.on('ready', () => client.exec(`TERM=dumb; echo ${Buffer.from(safeCommand, 'utf8').toString('base64')} | base64 -d | bash`, (error, stream) => { if (error) return fail(error); stream.on('data', (chunk) => emit({ type: 'stdout', data: cleanTerminalOutput(chunk) })); stream.stderr.on('data', (chunk) => emit({ type: 'stderr', data: cleanTerminalOutput(chunk) })); stream.on('close', finish) })).on('error', fail).connect({ host: session.machine.fqdn || session.machine.ip_address, port: session.machine.port || 22, username: usernameFor(session.credential), password: decryptSecret(session.credential.secret_encrypted), readyTimeout: 20000 })
+  } else {
+    const handlers = { onStdout: (data) => emit({ type: 'stdout', data: cleanTerminalOutput(data) }), onStderr: (data) => emit({ type: 'stderr', data: cleanTerminalOutput(data) }), onClose: finish, onError: fail }
+    const child = session.transport === 'psremoting'
+      ? streamPsRemoting({ target: session.machine.fqdn || session.machine.ip_address, port: session.machine.port || 5985, username: usernameFor(session.credential), password: decryptSecret(session.credential.secret_encrypted), content: `$command = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(safeCommand).toString('base64')}')); & ${session.machine.os_family === 'windows' ? 'cmd.exe /d /c' : 'bash -lc'} $command 2>&1 | ForEach-Object { Write-Output $_ }` }, handlers)
+      : streamLocalPowerShell(`$command = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(safeCommand).toString('base64')}')); & bash -lc $command 2>&1 | ForEach-Object { Write-Output $_ }`, handlers)
+    session.activeCommand = { cancel: () => child.kill('SIGTERM') }
+  }
+  return () => session.activeCommand?.cancel()
+}
+
+export function cancelTerminalCommand(sessionId) { const session = sessions.get(sessionId); if (!session?.activeCommand) return false; session.activeCommand.cancel(); writeLog('warning', 'terminal', 'CLI command cancelled', { machineId: session.machine.id, sessionId }); return true }
+
 export function disconnectTerminal(sessionId) {
   const session = sessions.get(sessionId)
   if (!session) return
+  session.activeCommand?.cancel()
   sessions.delete(sessionId)
   writeLog('info', 'terminal', 'CLI session disconnected', { machineId: session.machine.id, sessionId, requestedBy: session.requestedBy })
 }

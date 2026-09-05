@@ -181,6 +181,13 @@ export const useAppStore = defineStore('app', {
       await this.bootstrap()
       return results
     },
+    async streamRunScripts(payload, onEvent) {
+      const response = await fetch('/api/executions/run/stream', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify(payload) })
+      if (!response.ok || !response.body) throw new Error(`Run stream failed with status ${response.status}`)
+      const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
+      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const frames = buffer.split('\n\n'); buffer = frames.pop() || ''; frames.forEach((frame) => { const data = frame.replace(/^data: /, ''); if (data) onEvent(JSON.parse(data)) }) }
+      await this.bootstrap()
+    },
     async saveMachine(machine) {
       await this.api('/api/machines', {
         method: 'POST',
@@ -204,6 +211,13 @@ export const useAppStore = defineStore('app', {
     async runTerminalCommand(sessionId, command) {
       return this.api(`/api/terminal/${sessionId}/command`, { method: 'POST', body: JSON.stringify({ command }) })
     },
+    async streamTerminalCommand(sessionId, command, onEvent) {
+      const response = await fetch(`/api/terminal/${sessionId}/command/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify({ command }) })
+      if (!response.ok || !response.body) throw new Error(`Terminal stream failed with status ${response.status}`)
+      const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
+      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const frames = buffer.split('\n\n'); buffer = frames.pop() || ''; frames.forEach((frame) => { const payload = frame.replace(/^data: /, ''); if (payload) onEvent(JSON.parse(payload)) }) }
+    },
+    async cancelTerminalCommand(sessionId) { return this.api(`/api/terminal/${sessionId}/cancel`, { method: 'POST' }) },
     async disconnectTerminal(sessionId) {
       await this.api(`/api/terminal/${sessionId}/disconnect`, { method: 'POST' })
     },

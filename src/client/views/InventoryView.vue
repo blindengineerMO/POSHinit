@@ -29,6 +29,7 @@ const selectedRun = ref(null)
 const terminalDialog = ref(false)
 const terminalSession = ref(null)
 const terminalConnecting = ref(false)
+const terminalRunning = ref(false)
 const terminalHost = ref(null)
 let terminal
 let fitAddon
@@ -209,13 +210,18 @@ async function submitTerminalCommand() {
   commandBuffer = ''
   terminalConnecting.value = true
   try {
-    const result = await store.runTerminalCommand(terminalSession.value.id, command)
-    if (result.stdout) writeTerminal(`${result.stdout}\r\n`)
-    if (result.stderr) writeTerminal(`\x1b[31m${result.stderr}\x1b[0m\r\n`)
-    if (!result.stdout && !result.stderr) writeTerminal('\x1b[90m[command completed with no output]\x1b[0m\r\n')
+    terminalRunning.value = true
+    let receivedOutput = false
+    await store.streamTerminalCommand(terminalSession.value.id, command, (event) => {
+      if (event.type === 'stdout' && event.data) { receivedOutput = true; writeTerminal(event.data) }
+      if (event.type === 'stderr' && event.data) { receivedOutput = true; writeTerminal(`\x1b[31m${event.data}\x1b[0m`) }
+      if (event.type === 'complete' && !receivedOutput) writeTerminal('\x1b[90m[command completed with no output]\x1b[0m\r\n')
+    })
   } catch (error) { writeTerminal(`\x1b[31m${error.message}\x1b[0m\r\n`) }
-  finally { terminalConnecting.value = false; promptTerminal() }
+  finally { terminalRunning.value = false; terminalConnecting.value = false; promptTerminal() }
 }
+
+async function cancelTerminalCommand() { if (terminalSession.value && terminalRunning.value) await store.cancelTerminalCommand(terminalSession.value.id) }
 
 function createTerminal() {
   terminal?.dispose()
@@ -395,7 +401,7 @@ onBeforeUnmount(closeTerminal)
         </v-window>
       </div>
     </FloatingWindow>
-    <FloatingWindow v-model="terminalDialog" :title="`Remote CLI${terminalSession ? ` · ${terminalSession.transport}` : ''}`" :width="760" :start-x="270" :start-y="80"><div class="terminal-window"><div class="terminal-status"><v-icon :icon="terminalSession ? 'mdi-lan-connect' : 'mdi-lan-pending'"/><span>{{ terminalSession ? `Connected through ${terminalSession.transport} · press Enter to run commands` : terminalConnecting ? 'Establishing remote session...' : 'Connection unavailable' }}</span><v-btn size="x-small" variant="text" @click="terminalDialog = false">Disconnect</v-btn></div><div ref="terminalHost" class="xterm-host"/></div></FloatingWindow>
+    <FloatingWindow v-model="terminalDialog" :title="`Remote CLI${terminalSession ? ` · ${terminalSession.transport}` : ''}`" :width="760" :start-x="270" :start-y="80"><div class="terminal-window"><div class="terminal-status"><v-icon :icon="terminalSession ? 'mdi-lan-connect' : 'mdi-lan-pending'"/><span>{{ terminalRunning ? 'Command running · output is streaming' : terminalSession ? `Connected through ${terminalSession.transport} · press Enter to run commands` : terminalConnecting ? 'Establishing remote session...' : 'Connection unavailable' }}</span><v-btn v-if="terminalRunning" size="x-small" color="warning" variant="text" @click="cancelTerminalCommand">Cancel Command</v-btn><v-btn size="x-small" variant="text" @click="terminalDialog = false">Disconnect</v-btn></div><div ref="terminalHost" class="xterm-host"/></div></FloatingWindow>
     <VmwareImportWizard v-model="importDialog" :kind-filter="vmwareKind" />
     <AzureArcImportWizard v-model="azureArcImportDialog" />
     <SubnetScanWizard v-model="subnetScanDialog" />

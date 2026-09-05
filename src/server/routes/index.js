@@ -6,7 +6,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
-import { executeAdHocRun, executeScheduleWebhook } from '../services/executionService.js'
+import { executeAdHocRun, executeAdHocRunStream, executeScheduleWebhook } from '../services/executionService.js'
 import { listGroups, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
 import { searchLogs } from '../services/logService.js'
@@ -20,7 +20,7 @@ import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, im
 import { discoverAzureArcMachines, importAzureArcSelection, saveAzureArcSettings } from '../services/azureArcService.js'
 import { discoverProxmoxMachines, importProxmoxSelection, saveProxmoxSettings } from '../services/proxmoxService.js'
 import { validatePowerShell } from '../services/powershellService.js'
-import { connectTerminal, disconnectTerminal, runTerminalCommand } from '../services/terminalService.js'
+import { cancelTerminalCommand, connectTerminal, disconnectTerminal, runTerminalCommand, streamTerminalCommand } from '../services/terminalService.js'
 import { encryptSecret } from '../utils/crypto.js'
 import { beginEntraSignIn, consumeEnterpriseTicket, enterpriseFailureRedirect, enterpriseSignInFailure, entraStatus, finishEntraSignIn } from '../services/entraService.js'
 import { deleteNotificationPolicy, listNotificationPolicies, saveNotificationPolicy, setNotificationPolicyEnabled, testNotificationPolicy } from '../services/notificationPolicyService.js'
@@ -209,6 +209,12 @@ export function createRouter() {
   router.post('/api/terminal/:sessionId/command', async (req, res) => {
     res.json(await runTerminalCommand(req.params.sessionId, req.body.command))
   })
+  router.post('/api/terminal/:sessionId/command/stream', (req, res) => {
+    res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+    const emit = (event) => { res.write(`data: ${JSON.stringify(event)}\n\n`); if (event.type === 'complete') res.end() }
+    try { streamTerminalCommand(req.params.sessionId, req.body.command, emit) } catch (error) { emit({ type: 'stderr', data: error.message }); emit({ type: 'complete', code: 1 }) }
+  })
+  router.post('/api/terminal/:sessionId/cancel', (req, res) => { res.json({ cancelled: cancelTerminalCommand(req.params.sessionId) }) })
   router.post('/api/terminal/:sessionId/disconnect', (req, res) => {
     disconnectTerminal(req.params.sessionId)
     res.status(204).end()
@@ -251,6 +257,11 @@ export function createRouter() {
 
   router.post('/api/executions/run', async (req, res) => {
     res.json(await executeAdHocRun(req.body, req.user.id))
+  })
+  router.post('/api/executions/run/stream', async (req, res) => {
+    res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+    const emit = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`)
+    try { await executeAdHocRunStream(req.body, req.user.id, emit); res.end() } catch (error) { emit({ type: 'error', data: error.message }); res.end() }
   })
 
   router.get('/api/users', (_req, res) => {

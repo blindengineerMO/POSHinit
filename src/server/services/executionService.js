@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid'
 import { all, get, nowIso, run } from '../db/client.js'
 import { writeLog } from './logService.js'
 import { decryptSecret } from '../utils/crypto.js'
-import { executeLocalPowerShell, executePsRemoting } from './powershellService.js'
+import { executeLocalPowerShell, executePsRemoting, streamLocalPowerShell, streamPsRemoting } from './powershellService.js'
 import { computeNextRun, getDueSchedules, markScheduleExecuted } from './scheduleService.js'
 import { injectSecretTemplates } from './secretInjectionService.js'
 import { sendExecutionAlert } from './notificationService.js'
@@ -29,7 +29,7 @@ function buildTargetMachines(scheduleId) {
   return [...machineIds]
 }
 
-async function runExecution({ triggerType, scheduleId = null, scriptId, machineId, requestedBy = null }) {
+async function runExecution({ triggerType, scheduleId = null, scriptId, machineId, requestedBy = null, onOutput = null }) {
   const executionId = nanoid()
   const startedAt = nowIso()
   const script = get('SELECT id, name, content FROM library_entries WHERE id = ?', [scriptId])
@@ -67,9 +67,9 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
   try {
     // Templates are resolved only in memory after the run has been recorded.
     executableContent = injectSecretTemplates(script.content)
-    if (machine.transport === 'local') {
+    if (!onOutput && machine.transport === 'local') {
       result = await executeLocalPowerShell(executableContent)
-    } else if (machine.transport === 'psremoting') {
+    } else if (!onOutput && machine.transport === 'psremoting') {
       const credential = machine.credential_id
         ? get('SELECT * FROM credentials WHERE id = ?', [machine.credential_id])
         : null
@@ -90,8 +90,19 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
         password: decryptSecret(credential.secret_encrypted),
         content: executableContent,
       })
-    } else {
+    } else if (!onOutput) {
       throw new Error(`Execution transport is not supported: ${machine.transport}`)
+    } else {
+      const credential = machine.transport === 'psremoting' ? get('SELECT * FROM credentials WHERE id = ?', [machine.credential_id]) : null
+      const options = machine.transport === 'psremoting' ? { target: machine.fqdn || machine.ip_address, port: machine.port || 5985, username: credential?.domain_name ? `${credential.domain_name}\\${credential.username}` : credential?.username, password: decryptSecret(credential?.secret_encrypted || ''), content: executableContent } : null
+      if (machine.transport === 'psremoting' && (!credential || credential.protocol !== 'psremoting')) throw new Error('PowerShell remoting target requires a psremoting credential')
+      result = await new Promise((resolve, reject) => {
+        let stdout = ''; let stderr = ''
+        const handlers = { onStdout: (data) => { stdout += data; onOutput({ executionId, type: 'stdout', data }) }, onStderr: (data) => { stderr += data; onOutput({ executionId, type: 'stderr', data }) }, onClose: (code) => resolve({ code, stdout, stderr }), onError: reject }
+        if (machine.transport === 'local') streamLocalPowerShell(executableContent, handlers)
+        else if (machine.transport === 'psremoting') streamPsRemoting(options, handlers)
+        else reject(new Error(`Execution transport is not supported: ${machine.transport}`))
+      })
     }
   } catch (error) {
     result = {
@@ -187,6 +198,20 @@ export async function executeAdHocRun(payload, requestedBy) {
     }
   }
 
+  return results
+}
+
+export async function executeAdHocRunStream(payload, requestedBy, onOutput) {
+  const results = []
+  for (const scriptId of payload.scriptIds || []) {
+    for (const machineId of payload.machineIds || []) {
+      // Keep dispatch ordered while allowing each target to emit output immediately.
+      // eslint-disable-next-line no-await-in-loop
+      const result = await runExecution({ triggerType: payload.triggerType || 'manual', scriptId, machineId, requestedBy, onOutput })
+      results.push(result)
+      onOutput({ executionId: result.id, type: 'complete', execution: result })
+    }
+  }
   return results
 }
 

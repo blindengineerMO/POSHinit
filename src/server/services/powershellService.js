@@ -29,6 +29,17 @@ function runPwsh(args, content) {
   })
 }
 
+export function streamPwsh(args, content, { onStdout, onStderr, onClose, onError } = {}) {
+  const child = spawn('pwsh', args, { env: process.env, stdio: ['pipe', 'pipe', 'pipe'] })
+  child.stdout.on('data', (chunk) => onStdout?.(chunk.toString()))
+  child.stderr.on('data', (chunk) => onStderr?.(chunk.toString()))
+  child.on('error', (error) => onError?.(error))
+  child.on('close', (code) => onClose?.(code))
+  child.stdin.write(content)
+  child.stdin.end()
+  return child
+}
+
 function toBase64(value) {
   return Buffer.from(String(value ?? ''), 'utf8').toString('base64')
 }
@@ -99,3 +110,6 @@ export async function executePsRemoting({ target, port, username, password, cont
     buildPsRemotingScript({ target, port, username, password, content }),
   )
 }
+
+export function streamLocalPowerShell(content, handlers) { return streamPwsh(['-NoProfile', '-Command', '-'], content, handlers) }
+export function streamPsRemoting(options, handlers) { return streamPwsh(['-NoProfile', '-NonInteractive', '-Command', '-'], buildPsRemotingScript(options), handlers) }
