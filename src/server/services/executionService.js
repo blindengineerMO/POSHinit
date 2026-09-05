@@ -5,6 +5,8 @@ import { decryptSecret } from '../utils/crypto.js'
 import { executeLocalPowerShell, executePsRemoting } from './powershellService.js'
 import { computeNextRun, getDueSchedules, markScheduleExecuted } from './scheduleService.js'
 import { injectSecretTemplates } from './secretInjectionService.js'
+import { sendExecutionAlert } from './notificationService.js'
+import { dispatchNotificationEvent } from './notificationPolicyService.js'
 
 function buildTargetMachines(scheduleId) {
   const machineIds = new Set()
@@ -141,7 +143,28 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
     },
   )
 
-  return get('SELECT * FROM executions WHERE id = ?', [executionId])
+  const execution = get('SELECT * FROM executions WHERE id = ?', [executionId])
+  await sendExecutionAlert({
+    id: executionId,
+    status,
+    triggerType,
+    scriptName: script.name,
+    machineName: machine.name,
+    startedAt,
+    finishedAt,
+    durationMs: report.durationMs,
+    exitCode: result.code,
+    stderr: result.stderr,
+  })
+  await dispatchNotificationEvent({
+    type: status === 'success' ? 'job.success' : 'job.failed',
+    title: `${script.name} ${status} on ${machine.name}`,
+    summary: status === 'success' ? report.summary : String(result.stderr || report.summary).slice(0, 1000),
+    url: `/reports?execution=${executionId}`,
+    occurredAt: finishedAt,
+    details: { executionId, scriptId, machineId, status, exitCode: result.code },
+  })
+  return execution
 }
 
 export async function executeAdHocRun(payload, requestedBy) {

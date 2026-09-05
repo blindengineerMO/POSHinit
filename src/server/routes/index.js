@@ -11,7 +11,7 @@ import { listGroups, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
 import { searchLogs } from '../services/logService.js'
 import { listMachines, saveCredential, saveMachine, testMachineConnection, uploadAsset } from '../services/machineService.js'
-import { getSettings, saveSettings } from '../services/settingsService.js'
+import { getSettings, saveEntraSettings, saveNotificationSettings, saveSettings } from '../services/settingsService.js'
 import { getScheduleWebhook, getScheduleWebhookStatus, getWebhookSchedule, listSchedules, saveSchedule } from '../services/scheduleService.js'
 import { listTeams, saveTeam } from '../services/teamService.js'
 import { listUsers, saveUser } from '../services/userService.js'
@@ -19,6 +19,7 @@ import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, im
 import { validatePowerShell } from '../services/powershellService.js'
 import { encryptSecret } from '../utils/crypto.js'
 import { beginEntraSignIn, consumeEnterpriseTicket, enterpriseFailureRedirect, enterpriseSignInFailure, entraStatus, finishEntraSignIn } from '../services/entraService.js'
+import { deleteNotificationPolicy, listNotificationPolicies, saveNotificationPolicy, setNotificationPolicyEnabled, testNotificationPolicy } from '../services/notificationPolicyService.js'
 
 const upload = multer({
   dest: path.join(config.uploadsDir),
@@ -247,12 +248,50 @@ export function createRouter() {
   })
 
   router.post('/api/settings/:key', (req, res) => {
+    if (req.params.key === 'entra') {
+      if (req.user.role !== 'admin') {
+        res.status(403).json({ error: 'Only administrators can configure Microsoft Entra ID' })
+        return
+      }
+      res.json(saveEntraSettings(req.body))
+      return
+    }
+
+    if (req.params.key === 'notifications') {
+      if (req.user.role !== 'admin') {
+        res.status(403).json({ error: 'Only administrators can configure alert delivery' })
+        return
+      }
+      res.json(saveNotificationSettings(req.body))
+      return
+    }
+
     if (req.params.key === 'vcenter') {
       res.json(saveVcenterSettings(req.body))
       return
     }
 
     res.json(saveSettings(req.params.key, req.body))
+  })
+
+  router.get('/api/notification-policies', (_req, res) => { res.json(listNotificationPolicies()) })
+  router.post('/api/notification-policies', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage notification policies' })
+    return res.json(saveNotificationPolicy(req.body))
+  })
+  router.post('/api/notification-policies/:id/enabled', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage notification policies' })
+    return res.json(setNotificationPolicyEnabled(req.params.id, Boolean(req.body.enabled)))
+  })
+  router.post('/api/notification-policies/:id/test', async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage notification policies' })
+    await testNotificationPolicy(req.params.id)
+    return res.status(204).end()
+  })
+  router.delete('/api/notification-policies/:id', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage notification policies' })
+    deleteNotificationPolicy(req.params.id)
+    return res.status(204).end()
   })
 
   router.post('/api/vcenter/import', async (req, res) => {

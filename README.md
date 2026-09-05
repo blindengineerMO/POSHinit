@@ -162,6 +162,7 @@ $apiToken = {{secret:GitHub Automation.token}}
 ### Reporting And Logs
 
 - Execution history
+- SMTP and HTTP(S) webhook alerts for successful and failed job runs
 - Friendly execution summary payloads
 - Captured stdout and stderr
 - Searchable application and execution logs
@@ -276,6 +277,7 @@ curl -X POST http://localhost:4000/api/vmware/import \
 - SQL statements are parameterized through prepared statements in the SQLite wrapper.
 - Webhook execution requires the shared secret from `WEBHOOK_SECRET`.
 - Entra client secrets stay server-side in environment configuration; never place them in the browser or a checked-in `.env` file.
+- SMTP passwords are sealed in settings; alert payloads intentionally omit script content, resolved secrets, and full run output.
 
 ## Recommended Next Work
 

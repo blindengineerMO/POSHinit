@@ -3,6 +3,7 @@ import path from 'node:path'
 import { nanoid } from 'nanoid'
 import { config } from '../config.js'
 import { all, get, nowIso, run } from '../db/client.js'
+import { dispatchNotificationEvent } from './notificationPolicyService.js'
 
 function mapEntry(entry) {
   return {
@@ -91,7 +92,11 @@ export function saveLibraryEntry(payload, userId) {
     )
   }
 
-  return mapEntry(get('SELECT * FROM library_entries WHERE id = ?', [entryId]))
+  const entry = mapEntry(get('SELECT * FROM library_entries WHERE id = ?', [entryId]))
+  if (payload.type === 'script') {
+    void dispatchNotificationEvent({ type: 'script.edited', title: `${existing ? 'Script updated' : 'Script created'}: ${entry.name}`, summary: `Script Studio change saved by an operator.`, url: `/editor?script=${entryId}`, details: { entryId, userId: userId || '' } })
+  }
+  return entry
 }
 
 export function importLibraryFile(file, payload, userId) {
@@ -116,7 +121,7 @@ export function getLibraryPreview(entryId) {
 }
 
 export function deleteLibraryEntry(id) {
-  const entry = get('SELECT asset_path FROM library_entries WHERE id = ?', [id])
+  const entry = get('SELECT name, type, asset_path FROM library_entries WHERE id = ?', [id])
   if (entry?.asset_path) {
     const fullPath = assetEntryPath(entry)
     if (fullPath && fs.existsSync(fullPath)) {
@@ -125,6 +130,7 @@ export function deleteLibraryEntry(id) {
   }
 
   run('DELETE FROM library_entries WHERE id = ?', [id])
+  if (entry?.type === 'script') void dispatchNotificationEvent({ type: 'script.deleted', title: `Script deleted: ${entry.name}`, summary: 'A script was removed from the library.', url: '/editor', details: { entryId: id } })
 }
 
 export function listScriptVersions(entryId) {

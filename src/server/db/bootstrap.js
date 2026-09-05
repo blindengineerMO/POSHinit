@@ -196,6 +196,19 @@ function createTables() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS notification_policies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      window_json TEXT NOT NULL DEFAULT '{}',
+      event_types_json TEXT NOT NULL DEFAULT '[]',
+      recipient_user_ids_json TEXT NOT NULL DEFAULT '[]',
+      team_ids_json TEXT NOT NULL DEFAULT '[]',
+      webhook_url TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value_json TEXT NOT NULL,

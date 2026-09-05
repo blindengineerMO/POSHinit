@@ -3,14 +3,27 @@ import { nanoid } from 'nanoid'
 import { config } from '../config.js'
 import { loginWithEntra } from './authService.js'
 import { writeLog } from './logService.js'
+import { getStoredEntraSettings } from './settingsService.js'
+import { decryptSecret } from '../utils/crypto.js'
 
 const pendingAuthorizations = new Map()
 const completedSignIns = new Map()
 const lifetimeMs = 5 * 60 * 1000
 const scopes = ['openid', 'profile', 'email']
 
+function entraConfiguration() {
+  const stored = getStoredEntraSettings()
+  return {
+    tenantId: stored.tenantId || config.entra.tenantId,
+    clientId: stored.clientId || config.entra.clientId,
+    clientSecret: stored.clientSecretEncrypted ? decryptSecret(stored.clientSecretEncrypted) : config.entra.clientSecret,
+    redirectUri: stored.redirectUri || config.entra.redirectUri,
+  }
+}
+
 function configured() {
-  return Boolean(config.entra.tenantId && config.entra.clientId && config.entra.clientSecret)
+  const entra = entraConfiguration()
+  return Boolean(entra.tenantId && entra.clientId && entra.clientSecret)
 }
 
 function clearExpired(map) {
@@ -21,6 +34,7 @@ function clearExpired(map) {
 }
 
 function client() {
+  const entra = entraConfiguration()
   if (!configured()) {
     const error = new Error('Microsoft Entra ID is not configured')
     error.statusCode = 503
@@ -28,9 +42,9 @@ function client() {
   }
   return new ConfidentialClientApplication({
     auth: {
-      clientId: config.entra.clientId,
-      clientSecret: config.entra.clientSecret,
-      authority: `https://login.microsoftonline.com/${config.entra.tenantId}`,
+      clientId: entra.clientId,
+      clientSecret: entra.clientSecret,
+      authority: `https://login.microsoftonline.com/${entra.tenantId}`,
     },
   })
 }
@@ -52,9 +66,10 @@ export async function beginEntraSignIn(context = {}) {
   const pkceCodes = await cryptoProvider.generatePkceCodes()
   pendingAuthorizations.set(state, { verifier: pkceCodes.verifier, expiresAt: Date.now() + lifetimeMs, ip: context.ip || '' })
   writeLog('info', 'auth', 'Enterprise sign-in initiated', { ip: context.ip || '', provider: 'entra' })
+  const entra = entraConfiguration()
   return client().getAuthCodeUrl({
     scopes,
-    redirectUri: config.entra.redirectUri,
+    redirectUri: entra.redirectUri,
     state,
     prompt: 'select_account',
     codeChallenge: pkceCodes.challenge,
@@ -72,7 +87,8 @@ export async function finishEntraSignIn({ code, state }, context = {}) {
     throw error
   }
 
-  const result = await client().acquireTokenByCode({ code, scopes, redirectUri: config.entra.redirectUri, codeVerifier: pending.verifier })
+  const entra = entraConfiguration()
+  const result = await client().acquireTokenByCode({ code, scopes, redirectUri: entra.redirectUri, codeVerifier: pending.verifier })
   const claims = result.idTokenClaims || {}
   const email = result.account?.username || claims.preferred_username || claims.email
   const payload = loginWithEntra(email, { ip: context.ip || pending.ip || '' })

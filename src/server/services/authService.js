@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs'
 import { get } from '../db/client.js'
 import { createToken } from '../utils/crypto.js'
 import { writeLog } from './logService.js'
+import { dispatchNotificationEvent } from './notificationPolicyService.js'
 
 function publicUser(user) {
   return {
@@ -24,6 +25,7 @@ function createLoginResponse(user) {
 
 function invalidCredentials(context, email, provider) {
   writeLog('warning', 'auth', `${provider} sign-in failed`, { email: email || '', ip: context.ip || '', provider: provider.toLowerCase() })
+  void dispatchNotificationEvent({ type: 'auth.failed', title: `${provider} sign-in failed`, summary: `Failed sign-in for ${email || 'unknown account'}.`, url: '/settings?log=auth', details: { provider: provider.toLowerCase() } })
   const error = new Error('Invalid credentials')
   error.statusCode = 401
   return error
@@ -36,6 +38,7 @@ export function login({ email, password }, context = {}) {
   }
 
   writeLog('info', 'auth', 'Local sign-in succeeded', { userId: user.id, email: user.email, ip: context.ip || '', provider: 'local' })
+  void dispatchNotificationEvent({ type: 'auth.success', title: 'Local sign-in succeeded', summary: `${user.name} signed in.`, url: '/settings?log=auth', details: { userId: user.id } })
   return createLoginResponse(user)
 }
 
@@ -47,6 +50,7 @@ export function loginWithEntra(email, context = {}) {
   }
 
   writeLog('info', 'auth', 'Enterprise sign-in succeeded', { userId: user.id, email: normalizedEmail, ip: context.ip || '', provider: 'entra' })
+  void dispatchNotificationEvent({ type: 'auth.success', title: 'Enterprise sign-in succeeded', summary: `${user.name} signed in with Entra ID.`, url: '/settings?log=auth', details: { userId: user.id } })
   return createLoginResponse(user)
 }
 

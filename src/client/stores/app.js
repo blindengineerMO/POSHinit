@@ -231,6 +231,21 @@ export const useAppStore = defineStore('app', {
       this.catalog.settings[key] = result
       return result
     },
+    async listNotificationPolicies() {
+      return this.api('/api/notification-policies')
+    },
+    async saveNotificationPolicy(policy) {
+      return this.api('/api/notification-policies', { method: 'POST', body: JSON.stringify(policy) })
+    },
+    async setNotificationPolicyEnabled(id, enabled) {
+      return this.api(`/api/notification-policies/${id}/enabled`, { method: 'POST', body: JSON.stringify({ enabled }) })
+    },
+    async testNotificationPolicy(id) {
+      await this.api(`/api/notification-policies/${id}/test`, { method: 'POST' })
+    },
+    async deleteNotificationPolicy(id) {
+      await this.api(`/api/notification-policies/${id}`, { method: 'DELETE' })
+    },
     async importVcenter(payload) {
       const result = await this.api('/api/vcenter/import', {
         method: 'POST',
