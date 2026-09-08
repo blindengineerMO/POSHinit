@@ -10,14 +10,15 @@ const items = [
   { to: '/dashboard', icon: 'mdi-view-dashboard-outline', label: 'Command Deck' },
   { to: '/editor', icon: 'mdi-console-line', label: 'Script Studio' },
     { to: '/scheduler', icon: 'mdi-calendar-clock-outline', label: 'Run Planner' },
-    { to: '/approvals', icon: 'mdi-shield-check-outline', label: 'Approval Queue' },
+    { to: '/approvals', icon: 'mdi-shield-check-outline', label: 'Approval Queue', roles: ['admin', 'approver'] },
   { to: '/reports', icon: 'mdi-pulse', label: 'Run Ledger' },
   { to: '/inventory', icon: 'mdi-server-network-outline', label: 'Node Inventory' },
-  { to: '/vault', icon: 'mdi-key-variant', label: 'Secret Vault' },
-  { to: '/teams', icon: 'mdi-account-group-outline', label: 'Access Control' },
-  { to: '/settings', icon: 'mdi-cog-outline', label: 'System Settings' },
+  { to: '/vault', icon: 'mdi-key-variant', label: 'Secret Vault', roles: ['admin', 'operator'] },
+  { to: '/teams', icon: 'mdi-account-group-outline', label: 'Access Control', roles: ['admin'] },
+  { to: '/settings', icon: 'mdi-cog-outline', label: 'System Settings', roles: ['admin'] },
 ]
 const page = computed(() => items.find((item) => item.to === route.path) || items[0])
+const visibleItems = computed(() => items.filter((item) => !item.roles || item.roles.includes(store.currentUser?.role)))
 </script>
 
 <template>
@@ -34,7 +35,7 @@ const page = computed(() => items.find((item) => item.to === route.path) || item
     </header>
     <aside class="sidenav">
       <p class="nav-caption">Automation</p>
-      <nav class="nav-links" aria-label="Primary navigation"><RouterLink v-for="item in items" :key="item.to" :to="item.to" class="nav-link" :class="{ active: route.path === item.to }" :title="compact ? item.label : undefined"><v-icon :icon="item.icon" size="19" /><span>{{ item.label }}</span></RouterLink></nav>
+      <nav class="nav-links" aria-label="Primary navigation"><RouterLink v-for="item in visibleItems" :key="item.to" :to="item.to" class="nav-link" :class="{ active: route.path === item.to }" :title="compact ? item.label : undefined"><v-icon :icon="item.icon" size="19" /><span>{{ item.label }}</span></RouterLink></nav>
       <div class="nav-footer"><span class="nav-caption">Runtime</span><div class="runtime-row"><span class="signal cyan" /><span>PowerShell 7.5</span></div><div class="runtime-row"><v-icon icon="mdi-server-outline" size="14" /><span>{{ store.catalog.machines.length }} managed nodes</span></div></div>
     </aside>
     <main class="workspace"><div class="workspace-tabs"><RouterLink :to="page.to" class="workspace-tab"><v-icon :icon="page.icon" size="15" /> {{ page.label }} <v-icon icon="mdi-close" size="13" /></RouterLink></div><section class="workspace-scroll"><RouterView /></section></main>

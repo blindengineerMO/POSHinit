@@ -99,6 +99,12 @@ npm test
 
 Enterprise sign-in uses the Microsoft Authentication Library (MSAL) for Node with the authorization-code flow and PKCE. Administrators can configure the tenant ID, client ID, client secret, and redirect URI in **System Settings > Microsoft Entra ID**. The client secret is sealed at rest and is never returned to the browser. The `ENTRA_*` environment variables remain available as deployment-time fallback configuration.
 
+PKCE state and the short-lived post-login browser handoff ticket are persisted as one-time records in SQLite rather than process memory. For a multi-instance deployment, every instance must use the same `DB_PATH` on storage that supports SQLite locking; this lets the Entra callback and the SPA ticket exchange land on different application instances safely. Do not use per-instance local `./data` directories behind a load balancer.
+
+### Roles And Permissions
+
+POSHinit includes four explicit roles. `viewer` is read-only, `operator` can manage scripts, inventory, schedules, vault entries, and execute runs, `approver` can review and decide approval requests without changing automation, and `admin` has full control including identity, settings, and integrations. The API enforces permissions server-side, and disabled users are rejected even if they still hold a valid browser token.
+
 Configure a **Web** redirect URI in the Microsoft Entra app registration that exactly matches the configured redirect URI; for a local deployment the default is `http://localhost:4000/auth/entra/callback`.
 
 An Entra-authenticated identity does not create an operator automatically. In **Access Control**, create or edit the operator, enable **Allow enterprise sign-in**, and enter the Entra UPN/email returned at sign-in. Entra tenant policy controls MFA and Conditional Access. The system audit log records local and enterprise sign-in successes, failed attempts, enterprise callback failures, and sign-outs.

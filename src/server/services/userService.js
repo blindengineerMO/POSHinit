@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs'
 import { nanoid } from 'nanoid'
 import { all, get, nowIso, run } from '../db/client.js'
 import { config } from '../config.js'
+import { supportedRoles } from './rbacService.js'
 
 function mapUser(user) {
   return { ...user, entraEnabled: Boolean(user.entra_enabled), entraEmail: user.entra_email || '' }
@@ -20,6 +21,7 @@ export function saveUser(payload) {
     ? get('SELECT created_at, password_hash FROM users WHERE id = ?', [payload.id])
     : null
   const entraEnabled = Boolean(payload.entraEnabled)
+  const role = supportedRoles.includes(payload.role) ? payload.role : 'operator'
   const entraEmail = entraEnabled ? String(payload.entraEmail || '').trim().toLowerCase() : null
   if (entraEnabled && !entraEmail) {
     const error = new Error('An Entra ID email is required when enterprise sign-in is enabled')
@@ -43,7 +45,7 @@ export function saveUser(payload) {
       id: userId,
       name: payload.name,
       email: payload.email,
-      role: payload.role || 'operator',
+      role,
       status: payload.status || 'active',
       entraEnabled: entraEnabled ? 1 : 0,
       entraEmail,

@@ -5,9 +5,8 @@ import { loginWithEntra } from './authService.js'
 import { writeLog } from './logService.js'
 import { getStoredEntraSettings } from './settingsService.js'
 import { decryptSecret } from '../utils/crypto.js'
+import { consumeAuthSession, createAuthSession, pruneAuthSessions } from './authSessionService.js'
 
-const pendingAuthorizations = new Map()
-const completedSignIns = new Map()
 const lifetimeMs = 5 * 60 * 1000
 const scopes = ['openid', 'profile', 'email']
 
@@ -24,13 +23,6 @@ function entraConfiguration() {
 function configured() {
   const entra = entraConfiguration()
   return Boolean(entra.tenantId && entra.clientId && entra.clientSecret)
-}
-
-function clearExpired(map) {
-  const now = Date.now()
-  for (const [key, value] of map.entries()) {
-    if (value.expiresAt <= now) map.delete(key)
-  }
 }
 
 function client() {
@@ -60,11 +52,11 @@ export function entraStatus() {
 }
 
 export async function beginEntraSignIn(context = {}) {
-  clearExpired(pendingAuthorizations)
+  pruneAuthSessions()
   const state = nanoid(32)
   const cryptoProvider = new CryptoProvider()
   const pkceCodes = await cryptoProvider.generatePkceCodes()
-  pendingAuthorizations.set(state, { verifier: pkceCodes.verifier, expiresAt: Date.now() + lifetimeMs, ip: context.ip || '' })
+  createAuthSession(state, 'entra_pkce', { verifier: pkceCodes.verifier, ip: context.ip || '' }, lifetimeMs)
   writeLog('info', 'auth', 'Enterprise sign-in initiated', { ip: context.ip || '', provider: 'entra' })
   const entra = entraConfiguration()
   return client().getAuthCodeUrl({
@@ -78,9 +70,8 @@ export async function beginEntraSignIn(context = {}) {
 }
 
 export async function finishEntraSignIn({ code, state }, context = {}) {
-  clearExpired(pendingAuthorizations)
-  const pending = pendingAuthorizations.get(state)
-  pendingAuthorizations.delete(state)
+  pruneAuthSessions()
+  const pending = code && state ? consumeAuthSession(state, 'entra_pkce') : null
   if (!code || !pending) {
     const error = new Error('Enterprise sign-in request expired or could not be verified')
     error.statusCode = 400
@@ -93,14 +84,13 @@ export async function finishEntraSignIn({ code, state }, context = {}) {
   const email = result.account?.username || claims.preferred_username || claims.email
   const payload = loginWithEntra(email, { ip: context.ip || pending.ip || '' })
   const ticket = nanoid(32)
-  completedSignIns.set(ticket, { payload, expiresAt: Date.now() + lifetimeMs })
+  createAuthSession(ticket, 'entra_ticket', { payload }, lifetimeMs)
   return { redirectUrl: landingUrl({ enterpriseTicket: ticket }) }
 }
 
 export function consumeEnterpriseTicket(ticket) {
-  clearExpired(completedSignIns)
-  const entry = completedSignIns.get(ticket)
-  completedSignIns.delete(ticket)
+  pruneAuthSessions()
+  const entry = consumeAuthSession(ticket, 'entra_ticket')
   if (!entry) {
     const error = new Error('Enterprise sign-in session expired. Please try again.')
     error.statusCode = 401

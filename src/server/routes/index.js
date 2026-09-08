@@ -2,7 +2,7 @@ import express from 'express'
 import multer from 'multer'
 import path from 'node:path'
 import { config } from '../config.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
@@ -122,7 +122,7 @@ export function createRouter() {
   router.get('/api/bootstrap', (req, res) => {
     res.json({
       currentUser: req.user,
-      catalog: getCatalog(),
+      catalog: getCatalog(req.user),
       dashboard: getDashboardSummary(),
       library: listLibrary(),
     })
@@ -136,11 +136,11 @@ export function createRouter() {
     res.json(listLibrary())
   })
 
-  router.post('/api/library', (req, res) => {
+  router.post('/api/library', requirePermission('library:manage'), (req, res) => {
     res.json(saveLibraryEntry(req.body, req.user.id))
   })
 
-  router.delete('/api/library/:id', (req, res) => {
+  router.delete('/api/library/:id', requirePermission('library:manage'), (req, res) => {
     deleteLibraryEntry(req.params.id)
     res.status(204).end()
   })
@@ -168,16 +168,16 @@ export function createRouter() {
     return res.attachment(asset.entry.name).type('text/plain').send(asset.entry.content || '')
   })
 
-  router.post('/api/library/assets', upload.single('file'), (req, res) => {
+  router.post('/api/library/assets', requirePermission('library:manage'), upload.single('file'), (req, res) => {
     res.json(uploadAsset(req.file))
   })
 
-  router.post('/api/library/import', upload.single('file'), (req, res) => {
+  router.post('/api/library/import', requirePermission('library:manage'), upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required' })
     return res.json(importLibraryFile(req.file, req.body, req.user.id))
   })
 
-  router.post('/api/scripts/validate', async (req, res) => {
+  router.post('/api/scripts/validate', requirePermission('library:manage'), async (req, res) => {
     res.json(await validatePowerShell(req.body.content || ''))
   })
 
@@ -185,26 +185,26 @@ export function createRouter() {
     res.json(listMachines())
   })
 
-  router.post('/api/machines', (req, res) => {
+  router.post('/api/machines', requirePermission('inventory:manage'), (req, res) => {
     res.json(saveMachine(req.body))
   })
 
-  router.post('/api/machines/:id/test', async (req, res) => {
+  router.post('/api/machines/:id/test', requirePermission('inventory:manage'), async (req, res) => {
     res.json(await testMachineConnection(req.params.id))
   })
-  router.post('/api/machines/test-candidate', async (req, res) => {
+  router.post('/api/machines/test-candidate', requirePermission('inventory:manage'), async (req, res) => {
     res.json(await testMachineCandidate(req.body))
   })
-  router.post('/api/subnet-scans', (req, res) => {
+  router.post('/api/subnet-scans', requirePermission('inventory:manage'), (req, res) => {
     res.json(startSubnetScan(req.body))
   })
   router.get('/api/subnet-scans/:id', (req, res) => {
     res.json(getSubnetScan(req.params.id))
   })
-  router.post('/api/subnet-scans/:id/import', (req, res) => {
+  router.post('/api/subnet-scans/:id/import', requirePermission('inventory:manage'), (req, res) => {
     res.json(importSubnetScan(req.params.id, req.body.machines))
   })
-  router.post('/api/machines/:id/terminal/connect', async (req, res) => {
+  router.post('/api/machines/:id/terminal/connect', requirePermission('runs:execute'), async (req, res) => {
     res.json(await connectTerminal(req.params.id, req.user.id))
   })
   router.post('/api/terminal/:sessionId/command', async (req, res) => {
@@ -221,7 +221,7 @@ export function createRouter() {
     res.status(204).end()
   })
 
-  router.post('/api/credentials', (req, res) => {
+  router.post('/api/credentials', requirePermission('vault:manage'), (req, res) => {
     res.json(
       saveCredential(
         {
@@ -237,7 +237,7 @@ export function createRouter() {
     res.json(listGroups())
   })
 
-  router.post('/api/groups', (req, res) => {
+  router.post('/api/groups', requirePermission('inventory:manage'), (req, res) => {
     res.json(saveGroup(req.body))
   })
 
@@ -245,11 +245,11 @@ export function createRouter() {
     res.json(listSchedules())
   })
 
-  router.post('/api/schedules', (req, res) => {
+  router.post('/api/schedules', requirePermission('schedules:manage'), (req, res) => {
     res.json(saveSchedule(req.body, req.user.id))
   })
-  router.get('/api/approvals', (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator approval access is required' }); return res.json(listApprovals()) })
-  router.post('/api/approvals/:id/decision', async (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator approval access is required' }); const approval = decideApproval(req.params.id, req.body.status, req.user.id, req.body.notes); const executions = approval.status === 'approved' && approval.entity_type === 'schedule' ? await executeApprovedSchedule(approval.entity_id, req.user.id) : []; return res.json({ approval, executions }) })
+  router.get('/api/approvals', requirePermission('approvals:read'), (_req, res) => res.json(listApprovals()))
+  router.post('/api/approvals/:id/decision', requirePermission('approvals:decide'), async (req, res) => { const approval = decideApproval(req.params.id, req.body.status, req.user.id, req.body.notes); const executions = approval.status === 'approved' && approval.entity_type === 'schedule' ? await executeApprovedSchedule(approval.entity_id, req.user.id) : []; return res.json({ approval, executions }) })
 
   router.get('/api/schedules/:id/webhook', (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' })
@@ -258,33 +258,33 @@ export function createRouter() {
     return res.json({ url: `${config.publicAppUrl}/webhooks/schedules/${webhook.id}/${webhook.webhook_key}`, token: webhook.webhook_token })
   })
 
-  router.post('/api/executions/run', async (req, res) => {
+  router.post('/api/executions/run', requirePermission('runs:execute'), async (req, res) => {
     res.json(await executeAdHocRun(req.body, req.user.id))
   })
-  router.post('/api/executions/run/stream', async (req, res) => {
+  router.post('/api/executions/run/stream', requirePermission('runs:execute'), async (req, res) => {
     res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     const emit = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`)
     try { await executeAdHocRunStream(req.body, req.user.id, emit); res.end() } catch (error) { emit({ type: 'error', data: error.message }); res.end() }
   })
 
-  router.get('/api/users', (_req, res) => {
+  router.get('/api/users', requirePermission('identity:manage'), (_req, res) => {
     res.json(listUsers())
   })
 
-  router.post('/api/users', (req, res) => {
+  router.post('/api/users', requirePermission('identity:manage'), (req, res) => {
     res.json(saveUser(req.body))
   })
 
-  router.get('/api/teams', (_req, res) => {
+  router.get('/api/teams', requirePermission('identity:manage'), (_req, res) => {
     res.json(listTeams())
   })
 
-  router.post('/api/teams', (req, res) => {
+  router.post('/api/teams', requirePermission('identity:manage'), (req, res) => {
     res.json(saveTeam(req.body))
   })
 
-  router.get('/api/settings', (_req, res) => {
-    res.json(getCatalog().settings)
+  router.get('/api/settings', requirePermission('settings:manage'), (_req, res) => {
+    res.json(getCatalog({ role: 'admin' }).settings)
   })
 
   router.post('/api/settings/:key', (req, res) => {

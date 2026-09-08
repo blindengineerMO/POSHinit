@@ -1,8 +1,12 @@
 import { all } from '../db/client.js'
 import { decryptSecret } from '../utils/crypto.js'
 import { getSettings } from './settingsService.js'
+import { hasPermission } from './rbacService.js'
 
-export function getCatalog() {
+export function getCatalog(user = {}) {
+  const canManageIdentity = hasPermission(user, 'identity:manage')
+  const canManageVault = hasPermission(user, 'vault:manage')
+  const canManageSettings = hasPermission(user, 'settings:manage')
   const users = all(
     'SELECT id, name, email, role, status, entra_enabled, entra_email, created_at, updated_at FROM users ORDER BY name ASC',
   ).map((user) => ({ ...user, entraEnabled: Boolean(user.entra_enabled), entraEmail: user.entra_email || '' }))
@@ -111,13 +115,13 @@ export function getCatalog() {
   settings.proxmox = { ...(settings.proxmox || {}), connectors: (settings.proxmox?.connectors || []).map(({ apiTokenEncrypted, ...connector }) => ({ ...connector, apiTokenConfigured: Boolean(apiTokenEncrypted && decryptSecret(apiTokenEncrypted)) })) }
 
   return {
-    users,
-    teams,
-    credentials,
+    users: canManageIdentity ? users : [],
+    teams: canManageIdentity ? teams : [],
+    credentials: canManageVault ? credentials : [],
     machines,
     groups,
     schedules,
     executions,
-    settings,
+    settings: canManageSettings ? settings : {},
   }
 }

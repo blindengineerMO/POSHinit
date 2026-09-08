@@ -1,4 +1,5 @@
 import { get } from '../db/client.js'
+import { hasPermission } from '../services/rbacService.js'
 import { verifyToken } from '../utils/crypto.js'
 
 export function requireAuth(req, _res, next) {
@@ -19,6 +20,21 @@ export function requireAuth(req, _res, next) {
     return next(error)
   }
 
+  if (user.status !== 'active') {
+    const error = new Error('This account is disabled')
+    error.statusCode = 403
+    return next(error)
+  }
+
   req.user = { ...user, entraEnabled: Boolean(user.entra_enabled), entraEmail: user.entra_email || '' }
   return next()
+}
+
+export function requirePermission(permission) {
+  return (req, _res, next) => {
+    if (hasPermission(req.user, permission)) return next()
+    const error = new Error(`Your role does not have permission to ${permission}`)
+    error.statusCode = 403
+    return next(error)
+  }
 }
