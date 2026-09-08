@@ -190,6 +190,9 @@ export const useAppStore = defineStore('app', {
       while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const frames = buffer.split('\n\n'); buffer = frames.pop() || ''; frames.forEach((frame) => { const data = frame.replace(/^data: /, ''); if (data) onEvent(JSON.parse(data)) }) }
       await this.bootstrap()
     },
+    async cancelRunDispatch(dispatchId) {
+      return this.api(`/api/executions/dispatch/${dispatchId}/cancel`, { method: 'POST' })
+    },
     async saveMachine(machine) {
       await this.api('/api/machines', {
         method: 'POST',

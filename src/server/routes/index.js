@@ -6,7 +6,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
-import { executeAdHocRun, executeAdHocRunStream, executeApprovedSchedule, executeScheduleWebhook } from '../services/executionService.js'
+import { cancelAdHocRunStream, executeAdHocRun, executeApprovedSchedule, executeScheduleWebhook, startAdHocRunStream } from '../services/executionService.js'
 import { decideApproval, listApprovals } from '../services/approvalService.js'
 import { listGroups, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
@@ -207,16 +207,17 @@ export function createRouter() {
   router.post('/api/machines/:id/terminal/connect', requirePermission('runs:execute'), async (req, res) => {
     res.json(await connectTerminal(req.params.id, req.user.id))
   })
-  router.post('/api/terminal/:sessionId/command', async (req, res) => {
+  router.post('/api/terminal/:sessionId/command', requirePermission('runs:execute'), async (req, res) => {
     res.json(await runTerminalCommand(req.params.sessionId, req.body.command))
   })
-  router.post('/api/terminal/:sessionId/command/stream', (req, res) => {
+  router.post('/api/terminal/:sessionId/command/stream', requirePermission('runs:execute'), (req, res) => {
     res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+    res.flushHeaders()
     const emit = (event) => { res.write(`data: ${JSON.stringify(event)}\n\n`); if (event.type === 'complete') res.end() }
     try { streamTerminalCommand(req.params.sessionId, req.body.command, emit) } catch (error) { emit({ type: 'stderr', data: error.message }); emit({ type: 'complete', code: 1 }) }
   })
-  router.post('/api/terminal/:sessionId/cancel', (req, res) => { res.json({ cancelled: cancelTerminalCommand(req.params.sessionId) }) })
-  router.post('/api/terminal/:sessionId/disconnect', (req, res) => {
+  router.post('/api/terminal/:sessionId/cancel', requirePermission('runs:execute'), (req, res) => { res.json({ cancelled: cancelTerminalCommand(req.params.sessionId) }) })
+  router.post('/api/terminal/:sessionId/disconnect', requirePermission('runs:execute'), (req, res) => {
     disconnectTerminal(req.params.sessionId)
     res.status(204).end()
   })
@@ -263,8 +264,14 @@ export function createRouter() {
   })
   router.post('/api/executions/run/stream', requirePermission('runs:execute'), async (req, res) => {
     res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+    res.flushHeaders()
     const emit = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`)
-    try { await executeAdHocRunStream(req.body, req.user.id, emit); res.end() } catch (error) { emit({ type: 'error', data: error.message }); res.end() }
+    const stream = startAdHocRunStream(req.body, req.user.id, emit)
+    emit({ type: 'dispatch', dispatchId: stream.dispatchId })
+    try { await stream.promise; res.end() } catch (error) { emit({ type: 'error', data: error.message }); res.end() }
+  })
+  router.post('/api/executions/dispatch/:dispatchId/cancel', requirePermission('runs:execute'), (req, res) => {
+    res.json({ cancelled: cancelAdHocRunStream(req.params.dispatchId) })
   })
 
   router.get('/api/users', requirePermission('identity:manage'), (_req, res) => {

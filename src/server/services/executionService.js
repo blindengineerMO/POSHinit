@@ -10,6 +10,8 @@ import { sendExecutionAlert } from './notificationService.js'
 import { dispatchNotificationEvent } from './notificationPolicyService.js'
 import { requestScheduleApproval } from './approvalService.js'
 
+const activeDispatches = new Map()
+
 function buildTargetMachines(scheduleId) {
   const machineIds = new Set()
   const directTargets = all(
@@ -50,7 +52,41 @@ function executeSshPowerShell(machine, credential, content) {
   })
 }
 
-async function runExecution({ triggerType, scheduleId = null, scriptId, machineId, requestedBy = null, onOutput = null }) {
+function streamSshPowerShell(machine, credential, content, handlers) {
+  const client = new SshClient()
+  const encoded = Buffer.from(content, 'utf8').toString('base64')
+  let closed = false
+  const close = (code) => {
+    if (closed) return
+    closed = true
+    client.end()
+    handlers.onClose?.(code)
+  }
+  const fail = (error) => {
+    if (closed) return
+    closed = true
+    client.end()
+    handlers.onError?.(error)
+  }
+  client.on('ready', () => {
+    client.exec(`echo ${encoded} | base64 -d | pwsh -NoProfile -NonInteractive -Command -`, (error, stream) => {
+      if (error) return fail(error)
+      stream.on('data', (chunk) => handlers.onStdout?.(chunk.toString()))
+      stream.stderr.on('data', (chunk) => handlers.onStderr?.(chunk.toString()))
+      stream.on('close', close)
+      return undefined
+    })
+  }).on('error', fail).connect({
+    host: machine.fqdn || machine.ip_address,
+    port: machine.port || 22,
+    username: credential.username,
+    password: decryptSecret(credential.secret_encrypted),
+    readyTimeout: 20000,
+  })
+  return { cancel: () => { if (!closed) { closed = true; client.end(); handlers.onClose?.(130) } } }
+}
+
+async function runExecution({ triggerType, scheduleId = null, scriptId, machineId, requestedBy = null, onOutput = null, dispatch = null }) {
   const executionId = nanoid()
   const startedAt = nowIso()
   const script = get('SELECT id, name, content FROM library_entries WHERE id = ?', [scriptId])
@@ -118,26 +154,31 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
       if (!credential || credential.protocol !== 'ssh') throw new Error('SSH target requires an SSH credential')
       result = await executeSshPowerShell(machine, credential, executableContent)
     } else {
-      const credential = machine.transport === 'psremoting' ? get('SELECT * FROM credentials WHERE id = ?', [machine.credential_id]) : null
+      const credential = machine.transport === 'local' ? null : get('SELECT * FROM credentials WHERE id = ?', [machine.credential_id])
       const options = machine.transport === 'psremoting' ? { target: machine.fqdn || machine.ip_address, port: machine.port || 5985, username: credential?.domain_name ? `${credential.domain_name}\\${credential.username}` : credential?.username, password: decryptSecret(credential?.secret_encrypted || ''), content: executableContent } : null
       if (machine.transport === 'psremoting' && (!credential || credential.protocol !== 'psremoting')) throw new Error('PowerShell remoting target requires a psremoting credential')
+      if (machine.transport === 'ssh' && (!credential || credential.protocol !== 'ssh')) throw new Error('SSH target requires an SSH credential')
+      if (dispatch?.cancelled) throw new Error('Execution cancelled by operator')
       result = await new Promise((resolve, reject) => {
         let stdout = ''; let stderr = ''
         const handlers = { onStdout: (data) => { stdout += data; onOutput({ executionId, type: 'stdout', data }) }, onStderr: (data) => { stderr += data; onOutput({ executionId, type: 'stderr', data }) }, onClose: (code) => resolve({ code, stdout, stderr }), onError: reject }
-        if (machine.transport === 'local') streamLocalPowerShell(executableContent, handlers)
-        else if (machine.transport === 'psremoting') streamPsRemoting(options, handlers)
+        let runner
+        if (machine.transport === 'local') runner = streamLocalPowerShell(executableContent, handlers)
+        else if (machine.transport === 'psremoting') runner = streamPsRemoting(options, handlers)
+        else if (machine.transport === 'ssh') runner = streamSshPowerShell(machine, credential, executableContent, handlers)
         else reject(new Error(`Execution transport is not supported: ${machine.transport}`))
+        if (runner && dispatch) dispatch.cancelActive = () => runner.cancel ? runner.cancel() : runner.kill('SIGTERM')
       })
     }
   } catch (error) {
     result = {
-      code: 1,
+      code: dispatch?.cancelled ? 130 : 1,
       stdout: '',
-      stderr: error.message,
+      stderr: dispatch?.cancelled ? 'Execution cancelled by operator' : error.message,
     }
   }
 
-  const status = result.code === 0 ? 'success' : 'failed'
+  const status = dispatch?.cancelled || result.code === 130 ? 'cancelled' : result.code === 0 ? 'success' : 'failed'
   const finishedAt = nowIso()
   const report = {
     machineName: machine.name,
@@ -146,6 +187,8 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
     summary:
       status === 'success'
         ? 'Run completed without PowerShell errors.'
+        : status === 'cancelled'
+          ? 'Run was cancelled by an operator.'
         : 'Run failed. Inspect stderr and full log stream.',
   }
 
@@ -170,7 +213,7 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
   )
 
   writeLog(
-    status === 'success' ? 'info' : 'error',
+    status === 'success' ? 'info' : status === 'cancelled' ? 'warning' : 'error',
     'execution',
     `Execution ${status} for ${script.name} on ${machine.name}`,
     {
@@ -180,26 +223,28 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
   )
 
   const execution = get('SELECT * FROM executions WHERE id = ?', [executionId])
-  await sendExecutionAlert({
-    id: executionId,
-    status,
-    triggerType,
-    scriptName: script.name,
-    machineName: machine.name,
-    startedAt,
-    finishedAt,
-    durationMs: report.durationMs,
-    exitCode: result.code,
-    stderr: result.stderr,
-  })
-  await dispatchNotificationEvent({
-    type: status === 'success' ? 'job.success' : 'job.failed',
-    title: `${script.name} ${status} on ${machine.name}`,
-    summary: status === 'success' ? report.summary : String(result.stderr || report.summary).slice(0, 1000),
-    url: `/reports?execution=${executionId}`,
-    occurredAt: finishedAt,
-    details: { executionId, scriptId, machineId, status, exitCode: result.code },
-  })
+  if (status !== 'cancelled') {
+    await sendExecutionAlert({
+      id: executionId,
+      status,
+      triggerType,
+      scriptName: script.name,
+      machineName: machine.name,
+      startedAt,
+      finishedAt,
+      durationMs: report.durationMs,
+      exitCode: result.code,
+      stderr: result.stderr,
+    })
+    await dispatchNotificationEvent({
+      type: status === 'success' ? 'job.success' : 'job.failed',
+      title: `${script.name} ${status} on ${machine.name}`,
+      summary: status === 'success' ? report.summary : String(result.stderr || report.summary).slice(0, 1000),
+      url: `/reports?execution=${executionId}`,
+      occurredAt: finishedAt,
+      details: { executionId, scriptId, machineId, status, exitCode: result.code },
+    })
+  }
   return execution
 }
 
@@ -226,13 +271,30 @@ export async function executeAdHocRun(payload, requestedBy) {
   return results
 }
 
-export async function executeAdHocRunStream(payload, requestedBy, onOutput) {
+export function startAdHocRunStream(payload, requestedBy, onOutput) {
+  const dispatch = { id: nanoid(), cancelled: false, cancelActive: null }
+  activeDispatches.set(dispatch.id, dispatch)
+  const promise = executeAdHocRunStream(payload, requestedBy, onOutput, dispatch)
+    .finally(() => activeDispatches.delete(dispatch.id))
+  return { dispatchId: dispatch.id, promise }
+}
+
+export function cancelAdHocRunStream(dispatchId) {
+  const dispatch = activeDispatches.get(dispatchId)
+  if (!dispatch) return false
+  dispatch.cancelled = true
+  dispatch.cancelActive?.()
+  return true
+}
+
+export async function executeAdHocRunStream(payload, requestedBy, onOutput, dispatch = null) {
   const results = []
   for (const scriptId of payload.scriptIds || []) {
     for (const machineId of payload.machineIds || []) {
+      if (dispatch?.cancelled) return results
       // Keep dispatch ordered while allowing each target to emit output immediately.
       // eslint-disable-next-line no-await-in-loop
-      const result = await runExecution({ triggerType: payload.triggerType || 'manual', scriptId, machineId, requestedBy, onOutput })
+      const result = await runExecution({ triggerType: payload.triggerType || 'manual', scriptId, machineId, requestedBy, onOutput, dispatch })
       results.push(result)
       onOutput({ executionId: result.id, type: 'complete', execution: result })
     }

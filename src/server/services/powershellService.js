@@ -73,9 +73,10 @@ $invokeParameters = @{
   ErrorAction = 'Stop'
 }
 if (${useSsl}) { $invokeParameters.UseSSL = $true }
-# Force remoting objects and native shell output into one concrete stdout stream.
-$remoteOutput = Invoke-Command @invokeParameters 2>&1 | Out-String -Width 4096
-Write-Output $remoteOutput
+# Emit each remoting record immediately; collecting with Out-String would buffer a long run.
+Invoke-Command @invokeParameters 2>&1 | ForEach-Object {
+  Write-Output ($_ | Out-String -Width 4096)
+}
 `
 }
 
