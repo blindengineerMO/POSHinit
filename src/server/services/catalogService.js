@@ -2,8 +2,10 @@ import { all } from '../db/client.js'
 import { decryptSecret } from '../utils/crypto.js'
 import { getSettings } from './settingsService.js'
 import { hasPermission } from './rbacService.js'
+import { syncDynamicGroups } from './groupService.js'
 
 export function getCatalog(user = {}) {
+  syncDynamicGroups()
   const canManageIdentity = hasPermission(user, 'identity:manage')
   const canManageVault = hasPermission(user, 'vault:manage')
   const canManageSettings = hasPermission(user, 'settings:manage')
@@ -38,7 +40,7 @@ export function getCatalog(user = {}) {
      ORDER BY name ASC`,
   )
   const groups = all(
-    `SELECT g.id, g.name, g.description, g.created_at, g.updated_at,
+    `SELECT g.id, g.name, g.description, g.group_type, g.match_pattern, g.source_filters_json, g.last_synced_at, g.created_at, g.updated_at,
             COALESCE(json_group_array(dgm.machine_id), '[]') AS machine_ids_json
      FROM deployment_groups g
      LEFT JOIN deployment_group_machines dgm ON dgm.group_id = g.id
@@ -46,6 +48,9 @@ export function getCatalog(user = {}) {
      ORDER BY g.name ASC`,
   ).map((group) => ({
     ...group,
+    groupType: group.group_type || 'manual',
+    matchPattern: group.match_pattern || '',
+    sourceFilters: JSON.parse(group.source_filters_json || '[]'),
     machineIds: JSON.parse(group.machine_ids_json).filter(Boolean),
   }))
   const schedules = all(

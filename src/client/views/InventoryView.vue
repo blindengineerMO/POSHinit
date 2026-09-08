@@ -62,9 +62,13 @@ const nodeDraft = reactive({
 })
 
 const groupDraft = reactive({
+  id: '',
   name: '',
   description: '',
+  groupType: 'manual',
   machineIds: [],
+  matchPattern: '*',
+  sourceIds: [],
 })
 
 const transportOptions = [
@@ -79,6 +83,25 @@ const nodeCredentialOptions = computed(() => (store.catalog.credentials || []).f
   nodeDraft.transport === 'local' || credential.protocol === nodeDraft.transport,
 ))
 const nodeRunHistory = computed(() => (store.catalog.executions || []).filter((execution) => execution.machine_id === nodeDraft.id))
+const integratedSources = computed(() => {
+  const sources = new Map()
+  ;(store.catalog.machines || []).filter((machine) => machine.source_type && machine.source_type !== 'manual').forEach((machine) => {
+    const connectorId = String(machine.source_ref || '').split(':')[0]
+    if (!connectorId) return
+    const id = `${machine.source_type}:${connectorId}`
+    if (!sources.has(id)) sources.set(id, { id, sourceType: machine.source_type, connectorId, title: `${machine.source_type.replaceAll('_', ' ')} · ${connectorId}` })
+  })
+  return [...sources.values()].sort((left, right) => left.title.localeCompare(right.title))
+})
+const dynamicMatches = computed(() => {
+  if (groupDraft.groupType !== 'dynamic' || !groupDraft.matchPattern.trim()) return []
+  const expression = groupDraft.matchPattern.trim().replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')
+  const matcher = new RegExp(`^${expression}$`, 'i')
+  return (store.catalog.machines || []).filter((machine) => {
+    const sourceId = `${machine.source_type}:${String(machine.source_ref || '').split(':')[0]}`
+    return groupDraft.sourceIds.includes(sourceId) && (matcher.test(machine.name || '') || matcher.test(machine.fqdn || ''))
+  })
+})
 
 watch(() => machineDraft.transport, (transport) => {
   machineDraft.port = transport === 'psremoting' ? 5985 : transport === 'ssh' ? 22 : 0
@@ -157,8 +180,27 @@ async function saveNode() {
   await store.saveMachine(nodeDraft)
 }
 
+function resetGroup() {
+  Object.assign(groupDraft, { id: '', name: '', description: '', groupType: 'manual', machineIds: [], matchPattern: '*', sourceIds: [] })
+}
+
+function openGroup(group = null) {
+  if (!group) resetGroup()
+  else Object.assign(groupDraft, {
+    id: group.id,
+    name: group.name,
+    description: group.description || '',
+    groupType: group.groupType || 'manual',
+    machineIds: [...(group.machineIds || [])],
+    matchPattern: group.matchPattern || '*',
+    sourceIds: (group.sourceFilters || []).map((source) => `${source.sourceType}:${source.connectorId}`),
+  })
+  groupDialog.value = true
+}
+
 async function saveGroup() {
-  await store.saveGroup(groupDraft)
+  const sources = integratedSources.value.filter((source) => groupDraft.sourceIds.includes(source.id))
+  await store.saveGroup({ ...groupDraft, sourceFilters: sources.map(({ sourceType, connectorId }) => ({ sourceType, connectorId })) })
   groupDialog.value = false
 }
 
@@ -264,7 +306,7 @@ onBeforeUnmount(closeTerminal)
       </div>
       <div class="chip-line">
         <v-btn class="glass-button" prepend-icon="mdi-server-plus-outline" @click="importLauncherDialog = true">Add Or Import Machines</v-btn>
-        <v-btn prepend-icon="mdi-folder-network-outline" variant="text" @click="groupDialog = true">Create Group</v-btn>
+        <v-btn prepend-icon="mdi-folder-network-outline" variant="text" @click="openGroup()">Create Group</v-btn>
       </div>
     </div>
 
@@ -298,9 +340,9 @@ onBeforeUnmount(closeTerminal)
 
       <NeonPanel class="span-4" subtitle="Deployment Groups" title="Target Collections">
         <div class="group-list">
-          <article v-for="group in store.catalog.groups" :key="group.id" class="group-card">
-            <strong>{{ group.name }}</strong>
-            <span class="muted">{{ group.description }}</span>
+          <article v-for="group in store.catalog.groups" :key="group.id" class="group-card" @click="openGroup(group)">
+            <div class="group-card-heading"><strong>{{ group.name }}</strong><v-chip size="x-small" :color="group.groupType === 'dynamic' ? 'secondary' : undefined" variant="tonal">{{ group.groupType === 'dynamic' ? 'dynamic' : 'manual' }}</v-chip></div>
+            <span class="muted">{{ group.groupType === 'dynamic' ? `${group.matchPattern} · ${group.sourceFilters?.length || 0} source${group.sourceFilters?.length === 1 ? '' : 's'}` : group.description }}</span>
             <div class="chip-line">
               <v-chip v-for="machineId in group.machineIds" :key="machineId" size="small" variant="tonal">
                 {{ store.catalog.machines.find((machine) => machine.id === machineId)?.name || machineId }}
@@ -334,20 +376,13 @@ onBeforeUnmount(closeTerminal)
       </div>
     </FloatingWindow>
 
-    <FloatingWindow v-model="groupDialog" title="Create Group" :width="420" :start-x="560" :start-y="180">
-      <div class="form-grid">
-        <v-text-field v-model="groupDraft.name" label="Group name" />
-        <v-textarea v-model="groupDraft.description" label="Description" rows="3" />
-        <v-select
-          v-model="groupDraft.machineIds"
-          :items="store.catalog.machines"
-          item-title="name"
-          item-value="id"
-          label="Machines"
-          multiple
-          chips
-        />
-        <v-btn class="glass-button" prepend-icon="mdi-content-save-outline" @click="saveGroup">Save Group</v-btn>
+    <FloatingWindow v-model="groupDialog" :title="groupDraft.id ? 'Edit Target Collection' : 'Create Target Collection'" :width="610" :start-x="460" :start-y="120">
+      <div class="group-editor">
+        <div class="group-editor-intro"><div><p class="section-eyebrow">Targeting Strategy</p><strong>{{ groupDraft.groupType === 'dynamic' ? 'Dynamic Inventory Rule' : 'Manual Membership' }}</strong></div><v-btn-toggle v-model="groupDraft.groupType" mandatory density="compact" color="secondary"><v-btn value="manual" prepend-icon="mdi-account-multiple-outline">Manual</v-btn><v-btn value="dynamic" prepend-icon="mdi-auto-fix">Dynamic</v-btn></v-btn-toggle></div>
+        <div class="group-editor-fields"><v-text-field v-model="groupDraft.name" label="Collection name" density="compact"/><v-textarea v-model="groupDraft.description" label="Operator description" rows="2" density="compact"/></div>
+        <template v-if="groupDraft.groupType === 'manual'"><v-select v-model="groupDraft.machineIds" :items="store.catalog.machines" item-title="name" item-value="id" label="Explicit nodes" density="compact" multiple chips/><p class="group-helper">Manual collections retain exactly the nodes selected here.</p></template>
+        <template v-else><section class="dynamic-rule"><div class="dynamic-rule-head"><div><p class="section-eyebrow">Match Rule</p><strong>Name or FQDN wildcard</strong></div><v-chip size="small" color="secondary" variant="tonal">{{ dynamicMatches.length }} live matches</v-chip></div><v-text-field v-model="groupDraft.matchPattern" label="Wildcard rule" hint="Examples: TST* for all test nodes, *-WEB, or app-??" persistent-hint density="compact" prepend-inner-icon="mdi-asterisk"/><v-select v-model="groupDraft.sourceIds" :items="integratedSources" item-title="title" item-value="id" label="Integrated sources to search" hint="Only nodes imported from these connectors are considered." persistent-hint density="compact" multiple chips><template #no-data><div class="source-empty">Import nodes from VMware, Azure Arc, or Proxmox first.</div></template></v-select><div class="match-preview"><span class="section-eyebrow">Live Inventory Preview</span><div v-if="dynamicMatches.length" class="chip-line"><v-chip v-for="machine in dynamicMatches" :key="machine.id" size="small" variant="outlined">{{ machine.name }}</v-chip></div><p v-else class="muted">No imported nodes currently match this rule. The collection will update whenever it is refreshed or used by a schedule.</p></div></section></template>
+        <div class="window-actions"><v-btn variant="text" @click="groupDialog = false">Cancel</v-btn><v-btn class="glass-button" prepend-icon="mdi-content-save-outline" @click="saveGroup">{{ groupDraft.id ? 'Update Collection' : 'Create Collection' }}</v-btn></div>
       </div>
     </FloatingWindow>
 
@@ -433,7 +468,13 @@ onBeforeUnmount(closeTerminal)
   padding: 14px;
   border-radius: 18px;
   background: rgba(75, 116, 205, 0.08);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease;
 }
+.group-card:hover { border-color: rgba(40, 211, 255, .42); background: rgba(40, 211, 255, .08); }
+.group-card-heading, .group-editor-intro, .dynamic-rule-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.group-card-heading strong { color: var(--text); }
+.group-editor { display: grid; gap: 15px; }.group-editor-intro { padding: 11px 12px; border: 1px solid var(--line); background: linear-gradient(100deg, rgba(40, 211, 255, .08), rgba(159, 95, 255, .07)); }.group-editor-intro p, .group-editor-intro strong, .dynamic-rule-head p, .dynamic-rule-head strong { margin: 0; }.group-editor-intro strong, .dynamic-rule-head strong { display: block; margin-top: 3px; color: var(--cyan); font: .82rem 'Share Tech Mono', monospace; }.group-editor-fields { display: grid; grid-template-columns: 1fr 1.2fr; gap: 10px; }.dynamic-rule { display: grid; gap: 12px; padding: 14px; border: 1px solid rgba(40, 211, 255, .3); background: rgba(40, 211, 255, .035); }.group-helper, .match-preview p { margin: 0; color: var(--muted); font-size: .74rem; }.match-preview { display: grid; gap: 8px; padding: 10px; border: 1px dashed rgba(40, 211, 255, .34); background: rgba(3, 7, 11, .4); }.source-empty { padding: 9px 12px; color: var(--muted); font-size: .75rem; }
 
 .form-grid,
 .detail-grid {
@@ -475,5 +516,5 @@ onBeforeUnmount(closeTerminal)
 
 .terminal-window { display: grid; gap: 10px; }.terminal-status { display: flex; gap: 8px; align-items: center; padding: 9px 11px; border: 1px solid var(--line); color: var(--cyan); font: .75rem 'Share Tech Mono', monospace; }.terminal-status .v-btn { margin-left: auto; }.xterm-host { min-height: 390px; padding: 10px; overflow: hidden; border: 1px solid rgba(40, 211, 255, .34); background: #03070b; box-shadow: inset 0 0 38px rgba(40, 211, 255, .035); }.xterm-host :deep(.xterm) { height: 390px; }.xterm-host :deep(.xterm-viewport) { scrollbar-color: rgba(70, 214, 255, .42) #03070b; }
 
-@media (max-width: 720px) { .node-form-grid { grid-template-columns: 1fr; }.connection-summary { align-items: flex-start; flex-direction: column; }.node-tab-content { min-height: 0; } }
+@media (max-width: 720px) { .node-form-grid, .group-editor-fields { grid-template-columns: 1fr; }.connection-summary, .group-editor-intro { align-items: flex-start; flex-direction: column; }.node-tab-content { min-height: 0; } }
 </style>

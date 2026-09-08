@@ -9,10 +9,12 @@ import { injectSecretTemplates } from './secretInjectionService.js'
 import { sendExecutionAlert } from './notificationService.js'
 import { dispatchNotificationEvent } from './notificationPolicyService.js'
 import { requestScheduleApproval } from './approvalService.js'
+import { syncDynamicGroups } from './groupService.js'
 
 const activeDispatches = new Map()
 
 function buildTargetMachines(scheduleId) {
+  syncDynamicGroups()
   const machineIds = new Set()
   const directTargets = all(
     "SELECT target_id FROM schedule_targets WHERE schedule_id = ? AND target_type = 'machine'",

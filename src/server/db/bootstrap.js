@@ -107,6 +107,10 @@ function createTables() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       description TEXT,
+      group_type TEXT NOT NULL DEFAULT 'manual',
+      match_pattern TEXT,
+      source_filters_json TEXT NOT NULL DEFAULT '[]',
+      last_synced_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -241,6 +245,14 @@ function ensureUserIdentitySchema() {
 }
 
 function ensureScriptParameterSchema() { const columns = db.prepare('PRAGMA table_info(library_entries)').all().map((column) => column.name); if (!columns.includes('parameter_schema_json')) db.exec("ALTER TABLE library_entries ADD COLUMN parameter_schema_json TEXT NOT NULL DEFAULT '[]'") }
+
+function ensureDynamicGroupSchema() {
+  const columns = db.prepare('PRAGMA table_info(deployment_groups)').all().map((column) => column.name)
+  if (!columns.includes('group_type')) db.exec("ALTER TABLE deployment_groups ADD COLUMN group_type TEXT NOT NULL DEFAULT 'manual'")
+  if (!columns.includes('match_pattern')) db.exec('ALTER TABLE deployment_groups ADD COLUMN match_pattern TEXT')
+  if (!columns.includes('source_filters_json')) db.exec("ALTER TABLE deployment_groups ADD COLUMN source_filters_json TEXT NOT NULL DEFAULT '[]'")
+  if (!columns.includes('last_synced_at')) db.exec('ALTER TABLE deployment_groups ADD COLUMN last_synced_at TEXT')
+}
 
 function ensureScheduleWebhookSchema() {
   const columns = db.prepare('PRAGMA table_info(schedules)').all().map((column) => column.name)
@@ -578,6 +590,7 @@ export function initializeDatabase() {
   ensureScheduleWebhookSchema()
   ensureCredentialSecretSchema()
   ensureScriptParameterSchema()
+  ensureDynamicGroupSchema()
   seedSettings()
   seedDemoData()
   logger.info({ dbPath: config.dbPath }, 'database initialized')

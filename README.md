@@ -12,7 +12,7 @@ This repository now contains a runnable greenfield foundation with:
 - PowerShell parser-backed syntax validation
 - Personal and shared script library model with revision history
 - Script library import, preview, and export for PowerShell and supporting files
-- Machine inventory, deployment groups, and local, SSH, and PowerShell Remoting connection testing
+- Machine inventory, manual and dynamic deployment groups, and local, SSH, and PowerShell Remoting connection testing
 - Credential vault with encrypted secret storage
 - Schedule builder for one-time and recurring runs
 - Manual and scheduled execution services
@@ -147,13 +147,22 @@ SMTP passwords are sealed at rest. Job alerts contain execution metadata and a s
 ### Inventory And Credentials
 
 - Manual machine registration
-- Deployment groups
+- Manual and dynamic deployment groups
 - Stored credentials with AES-256-GCM encryption
 - Username/password, domain credentials, and token secret types
 - Per-machine credential assignment
 - Test connection action with a PowerShell hello-world validation
 - PowerShell Remoting execution through WinRM, using `Invoke-Command` and sealed credentials
 - Node actions for a browser-hosted CLI and RDP file download
+
+### Dynamic Host Groups
+
+**Node Inventory > Create Group** opens a floating target-collection editor. Collections can be manual, with an explicit node list, or dynamic, with a name/FQDN wildcard rule and one or more imported integration sources.
+
+- Use `*` to match any number of characters and `?` to match one character. For example, `TST*` selects imported nodes whose name or FQDN begins with `TST`; `*-WEB` selects names ending in `-WEB`.
+- Dynamic rules search only the selected VMware, Azure Arc, or Proxmox connector sources. The editor shows a live preview before the collection is saved.
+- Membership is materialized for schedule targeting and refreshed when inventory/group data is loaded and immediately before a schedule expands group targets. This allows newly imported matching nodes to join a dynamic collection without manually editing its membership.
+- Dynamic collections only include imported nodes. Manually registered nodes remain available to manual collections.
 
 ### Node CLI And RDP
 
@@ -381,7 +390,7 @@ VMware connectors are configured in **System Settings > VMware Inventory**. Add 
 - Azure Arc discovery imports only Arc-enabled server resource metadata. Imported targets still need a directly reachable WinRM endpoint and matching PowerShell Remoting credential for POSHinit execution.
 - Proxmox VE discovery imports guest inventory metadata. Imported guests still need a directly reachable WinRM endpoint and matching PowerShell Remoting credential for POSHinit execution.
 - Subnet discovery is IPv4 only and is limited to 1,024 usable addresses per scan. TCP reachability, reverse DNS, WinRM, and SSH results depend on the POSHinit server's own network path and firewall policy.
-- Entra ID uses an in-memory, short-lived PKCE and callback ticket store. Run a shared session store before deploying more than one application instance.
+- Entra ID PKCE state and callback tickets use one-time, short-lived SQLite records. Multi-instance deployments must point every instance at the same `DB_PATH` on storage that supports SQLite locking.
 
 ## Security Notes
 
