@@ -161,6 +161,8 @@ export const useAppStore = defineStore('app', {
         body: JSON.stringify({ content }),
       })
     },
+    async listParameterSets(scriptId = '') { return this.api(`/api/parameter-sets${scriptId ? `?scriptId=${encodeURIComponent(scriptId)}` : ''}`) },
+    async saveParameterSet(parameterSet) { return this.api('/api/parameter-sets', { method: 'POST', body: JSON.stringify(parameterSet) }) },
     async saveSchedule(schedule) {
       const saved = await this.api('/api/schedules', {
         method: 'POST',

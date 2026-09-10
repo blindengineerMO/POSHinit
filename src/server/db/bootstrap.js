@@ -406,6 +406,21 @@ function createTables() {
     );
 
     CREATE INDEX IF NOT EXISTS external_secret_accesses_audit_idx ON external_secret_accesses(provider_id, accessed_at DESC);
+
+    CREATE TABLE IF NOT EXISTS parameter_sets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      script_id TEXT NOT NULL,
+      values_json TEXT NOT NULL DEFAULT '{}',
+      owner_user_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(script_id, name),
+      FOREIGN KEY (script_id) REFERENCES library_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS parameter_sets_script_idx ON parameter_sets(script_id, name);
   `)
 }
 

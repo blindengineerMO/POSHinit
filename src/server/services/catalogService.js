@@ -71,6 +71,7 @@ export function getCatalog(user = {}) {
     scriptIds: JSON.parse(schedule.script_ids_json).filter(Boolean),
     groupIds: JSON.parse(schedule.group_ids_json).filter(Boolean),
     machineIds: JSON.parse(schedule.machine_ids_json).filter(Boolean),
+    parameters: Object.fromEntries(all('SELECT script_id, parameters_json FROM schedule_scripts WHERE schedule_id = ?', [schedule.id]).map((row) => [row.script_id, JSON.parse(row.parameters_json || '{}')])),
   }))
   const executions = all(
     `SELECT e.id, e.trigger_type, e.schedule_id, e.script_id, e.machine_id, e.status, e.requested_by,

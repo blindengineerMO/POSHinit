@@ -180,6 +180,27 @@ Administrators can inspect the runtime health summary at `GET /api/reliability/s
 - PowerShell syntax validation using the PowerShell parser
 - Floating library explorer with contextual creation and delete actions
 - Import PowerShell scripts, images, and supporting files; preview safe text/images and export any library entry
+- Schema-driven parameter definitions with typed runtime forms and reusable parameter sets
+
+### Schema-Driven Parameters
+
+Scripts may define a `parameterSchema` array in Script Studio. The Run Planner renders matching typed fields for each selected script and validates them again on the server before saving a schedule and immediately before every target execution.
+
+- Supported types are `string`, `number`, `boolean`, `date`, `enum`, `array`, `machine`, `group`, and `credential`.
+- Fields support labels, descriptions, defaults, `required`, `options` for enums, `sensitive`, conditional visibility/requirement rules, and safe validation expressions: `value.length >= 3`, numeric comparisons such as `value <= 10`, or `regex:^[A-Z]+$`.
+- Conditions can use `{ "field": "Mode", "equals": "force" }`, `notEquals`, or `in`. Machine, group, and credential pickers validate that the selected inventory record still exists.
+- Sensitive values are AES-GCM sealed before schedule or reusable-set persistence, unsealed only while an execution prepares its PowerShell parameter preamble, and added to output redaction for that execution.
+- Save or load reusable sets from the Schedule Composer. Sets belong to a script and reuse its schema; API clients can use `GET /api/parameter-sets?scriptId={id}` and `POST /api/parameter-sets`.
+
+Example:
+
+```json
+[
+  { "name": "Mode", "type": "enum", "options": ["safe", "force"], "default": "safe" },
+  { "name": "Reason", "type": "string", "required": true, "condition": { "field": "Mode", "equals": "force" }, "validation": "value.length >= 3" },
+  { "name": "TargetCredential", "type": "credential", "sensitive": true }
+]
+```
 
 ### Inventory And Credentials
 

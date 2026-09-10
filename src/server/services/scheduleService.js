@@ -2,6 +2,7 @@ import { CronExpressionParser } from 'cron-parser'
 import crypto from 'node:crypto'
 import { nanoid } from 'nanoid'
 import { all, get, nowIso, run, transaction } from '../db/client.js'
+import { resolveParameterValues, sealSensitiveParameterValues } from './parameterService.js'
 
 export function computeNextRun(schedule, fromDate = new Date()) {
   if ((schedule.mode || schedule.mode) === 'once') {
@@ -39,6 +40,7 @@ export function listSchedules() {
     scriptIds: JSON.parse(schedule.script_ids_json).filter(Boolean),
     groupIds: JSON.parse(schedule.group_ids_json).filter(Boolean),
     machineIds: JSON.parse(schedule.machine_ids_json).filter(Boolean),
+    parameters: Object.fromEntries(all('SELECT script_id, parameters_json FROM schedule_scripts WHERE schedule_id = ?', [schedule.id]).map((row) => [row.script_id, JSON.parse(row.parameters_json || '{}')])),
   }))
 }
 
@@ -105,12 +107,15 @@ export function saveSchedule(payload, createdBy) {
 
     run('DELETE FROM schedule_scripts WHERE schedule_id = ?', [scheduleId])
     ;(payload.scriptIds || []).forEach((scriptId) => {
+      const script = get('SELECT parameter_schema_json FROM library_entries WHERE id = ? AND type = ?', [scriptId, 'script'])
+      if (!script) throw new Error('Scheduled script was not found')
+      const resolved = resolveParameterValues(JSON.parse(script.parameter_schema_json || '[]'), payload.parameters?.[scriptId] || {})
       run(
         'INSERT INTO schedule_scripts (schedule_id, script_id, parameters_json) VALUES (@scheduleId, @scriptId, @parametersJson)',
         {
           scheduleId,
           scriptId,
-          parametersJson: JSON.stringify(payload.parameters?.[scriptId] || {}),
+          parametersJson: JSON.stringify(sealSensitiveParameterValues(resolved.schema, resolved.values)),
         },
       )
     })

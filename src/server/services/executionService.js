@@ -11,6 +11,7 @@ import { dispatchNotificationEvent } from './notificationPolicyService.js'
 import { requestScheduleApproval } from './approvalService.js'
 import { syncDynamicGroups } from './groupService.js'
 import { redactText } from './outputRedactionService.js'
+import { resolveParameterValues } from './parameterService.js'
 
 const activeDispatches = new Map()
 
@@ -92,7 +93,7 @@ function streamSshPowerShell(machine, credential, content, handlers) {
 export async function runExecution({ triggerType, scheduleId = null, scriptId, machineId, requestedBy = null, onOutput = null, dispatch = null }) {
   const executionId = nanoid()
   const startedAt = nowIso()
-  const script = get('SELECT id, name, content FROM library_entries WHERE id = ?', [scriptId])
+  const script = get('SELECT id, name, content, parameter_schema_json FROM library_entries WHERE id = ?', [scriptId])
   const machine = get('SELECT * FROM machines WHERE id = ?', [machineId])
 
   run(
@@ -128,10 +129,12 @@ export async function runExecution({ triggerType, scheduleId = null, scriptId, m
   const redactExecutionOutput = (value) => redactText(dispatch?.redactOutput ? dispatch.redactOutput(value) : value, executionSecretValues)
   try {
     // Templates are resolved only in memory after the run has been recorded.
-    const scheduleValues = scheduleId ? JSON.parse(get('SELECT parameters_json FROM schedule_scripts WHERE schedule_id = ? AND script_id = ?', [scheduleId, scriptId])?.parameters_json || '{}') : {}
+    const storedParameters = scheduleId ? JSON.parse(get('SELECT parameters_json FROM schedule_scripts WHERE schedule_id = ? AND script_id = ?', [scheduleId, scriptId])?.parameters_json || '{}') : {}
+    const resolvedParameters = resolveParameterValues(JSON.parse(script.parameter_schema_json || '[]'), storedParameters)
+    executionSecretValues.push(...resolvedParameters.sensitiveValues)
     const injected = await injectSecretTemplates(script.content, { executionId, scriptId, machineId })
     executionSecretValues = injected.secretValues
-    executableContent = parameterPreamble(scheduleValues) + injected.content
+    executableContent = parameterPreamble(resolvedParameters.values) + injected.content
     if (!onOutput && machine.transport === 'local') {
       result = await executeLocalPowerShell(executableContent)
     } else if (!onOutput && machine.transport === 'psremoting') {

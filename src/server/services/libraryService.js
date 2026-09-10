@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid'
 import { config } from '../config.js'
 import { all, get, nowIso, run } from '../db/client.js'
 import { dispatchNotificationEvent } from './notificationPolicyService.js'
+import { normalizeParameterSchema } from './parameterService.js'
 
 function mapEntry(entry) {
   return {
@@ -41,6 +42,7 @@ export function saveLibraryEntry(payload, userId) {
   const existing = payload.id
     ? get('SELECT id, created_at FROM library_entries WHERE id = ?', [payload.id])
     : null
+  const parameterSchema = payload.type === 'script' ? normalizeParameterSchema(payload.parameterSchema || []) : []
 
   run(
     `INSERT INTO library_entries (
@@ -74,7 +76,7 @@ export function saveLibraryEntry(payload, userId) {
       language: payload.language || 'powershell',
       isPublished: payload.isPublished ? 1 : 0,
       notes: payload.notes || '',
-      parameterSchemaJson: JSON.stringify(Array.isArray(payload.parameterSchema) ? payload.parameterSchema : []),
+      parameterSchemaJson: JSON.stringify(parameterSchema),
       createdAt: existing?.created_at || timestamp,
       updatedAt: timestamp,
     },

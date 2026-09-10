@@ -28,6 +28,7 @@ import { beginEntraSignIn, consumeEnterpriseTicket, enterpriseFailureRedirect, e
 import { deleteNotificationPolicy, listNotificationPolicies, saveNotificationPolicy, setNotificationPolicyEnabled, testNotificationPolicy } from '../services/notificationPolicyService.js'
 import { downloadDispatchOutput, enqueueDispatch, getDispatch, getReliabilityStatus, listDeadLetters, listDispatchEvents, requeueDeadLetter, requestDispatchCancellation, subscribeDispatch, tailDispatchOutput } from '../services/jobQueueService.js'
 import { assertDispatchPermissions, assertResourcePermission, deleteAccessGrant, listAccessGrants, listScopeHierarchy, saveAccessGrant } from '../services/rbacService.js'
+import { listParameterSets, saveParameterSet } from '../services/parameterService.js'
 
 const upload = multer({
   dest: path.join(config.uploadsDir),
@@ -173,6 +174,12 @@ export function createRouter() {
 
   router.post('/api/scripts/validate', requirePermission('library:manage'), async (req, res) => {
     res.json(await validatePowerShell(req.body.content || ''))
+  })
+  router.get('/api/parameter-sets', requirePermission('library:read'), (req, res) => {
+    res.json(listParameterSets(req.query.scriptId || null))
+  })
+  router.post('/api/parameter-sets', requirePermission('library:manage'), requireResourcePermission('edit', 'runbook', (req) => req.body.scriptId || '*'), (req, res) => {
+    res.json(saveParameterSet(req.body, req.user.id))
   })
 
   router.get('/api/machines', (_req, res) => {
