@@ -184,14 +184,51 @@ export const useAppStore = defineStore('app', {
       return results
     },
     async streamRunScripts(payload, onEvent) {
-      const response = await fetch('/api/executions/run/stream', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify(payload) })
-      if (!response.ok || !response.body) throw new Error(`Run stream failed with status ${response.status}`)
-      const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
-      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const frames = buffer.split('\n\n'); buffer = frames.pop() || ''; frames.forEach((frame) => { const data = frame.replace(/^data: /, ''); if (data) onEvent(JSON.parse(data)) }) }
+      const idempotencyKey = payload.idempotencyKey || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
+      const dispatch = await this.api('/api/executions/run', { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ ...payload, idempotencyKey }) })
+      onEvent({ type: 'dispatch', dispatchId: dispatch.id })
+      let after = 0
+      let complete = false
+      while (!complete) {
+        try {
+          await new Promise((resolve, reject) => {
+            const scheme = globalThis.location.protocol === 'https:' ? 'wss' : 'ws'
+            const socket = new WebSocket(`${scheme}://${globalThis.location.host}/api/executions/dispatch/${encodeURIComponent(dispatch.id)}/socket?after=${after}`, ['poshinit', this.token])
+            socket.onmessage = (message) => { const event = JSON.parse(message.data); after = Math.max(after, event.sequence || 0); onEvent(event); if (event.type === 'dispatch-complete') { complete = true; socket.close(); resolve() } }
+            socket.onerror = () => reject(new Error('Live output gateway connection failed'))
+            socket.onclose = () => resolve()
+          })
+        } catch (_error) {
+          // Durable REST replay keeps the console usable when a proxy blocks WebSockets.
+          const events = await this.api(`/api/executions/dispatch/${dispatch.id}/events?after=${after}`)
+          events.forEach((event) => { after = Math.max(after, event.sequence || 0); onEvent({ type: event.type, targetId: event.targetId, sequence: event.sequence, ...event.data }) })
+          await new Promise((resolve) => setTimeout(resolve, 750))
+        }
+        if (!complete) {
+          const status = await this.api(`/api/executions/dispatch/${dispatch.id}`)
+          if (['completed', 'completed_with_errors', 'cancelled'].includes(status.status)) {
+            const events = await this.api(`/api/executions/dispatch/${dispatch.id}/events?after=${after}`)
+            events.forEach((event) => { after = Math.max(after, event.sequence || 0); onEvent({ type: event.type, targetId: event.targetId, sequence: event.sequence, ...event.data }) })
+            complete = true
+          }
+        }
+      }
       await this.bootstrap()
     },
     async cancelRunDispatch(dispatchId) {
       return this.api(`/api/executions/dispatch/${dispatchId}/cancel`, { method: 'POST' })
+    },
+    async tailDispatchOutput(dispatchId, after = 0) {
+      return this.api(`/api/executions/dispatch/${dispatchId}/output/tail?after=${after}`)
+    },
+    async downloadDispatchOutput(dispatchId) {
+      const blob = await this.apiBlob(`/api/executions/dispatch/${dispatchId}/output/download`)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `poshinit-dispatch-${dispatchId}.log`
+      link.click()
+      URL.revokeObjectURL(url)
     },
     async saveMachine(machine) {
       await this.api('/api/machines', {
@@ -262,6 +299,9 @@ export const useAppStore = defineStore('app', {
       this.catalog.settings[key] = result
       return result
     },
+    async getReliabilityStatus() { return this.api('/api/reliability/status') },
+    async listDeadLetters() { return this.api('/api/reliability/dead-letters') },
+    async requeueDeadLetter(id) { return this.api(`/api/reliability/dead-letters/${id}/requeue`, { method: 'POST' }) },
     async listNotificationPolicies() {
       return this.api('/api/notification-policies')
     },

@@ -16,6 +16,7 @@ This repository now contains a runnable greenfield foundation with:
 - Credential vault with encrypted secret storage
 - Schedule builder for one-time and recurring runs
 - Manual and scheduled execution services
+- Durable dispatch queue with quota enforcement, timeout, retry/backoff, circuit breakers, dead letters, cancellation, and redacted resumable output
 - Reporting and searchable logs
 - Local authentication plus Microsoft Entra ID enterprise sign-in with tenant-managed MFA
 - VMware connector registry for vCenter REST and standalone ESXi SOAP inventory import
@@ -39,6 +40,7 @@ This repository now contains a runnable greenfield foundation with:
 - `Monaco Editor`
 - `Nodemailer`
 - `xterm.js` with the Fit addon
+- `ws` WebSocket gateway for live dispatch output
 
 ## Quick Start
 
@@ -88,6 +90,7 @@ npm test
 | `CORS_ORIGIN` | `*` | CORS origin policy |
 | `LOG_LEVEL` | `info` | Pino log level |
 | `SCHEDULER_POLL_MS` | `15000` | Schedule polling interval |
+| `WORKER_POLL_MS` | `1000` | Durable job-worker polling interval |
 | `DEMO_PASSWORD` | `ChangeMe123!` | Seeded admin password |
 | `PUBLIC_APP_URL` | `http://localhost:$PORT` | Public base URL used after enterprise sign-in |
 | `ENTRA_TENANT_ID` | none | Microsoft Entra tenant ID or tenant domain |
@@ -114,6 +117,30 @@ An Entra-authenticated identity does not create an operator automatically. In **
 Administrators configure delivery in **System Settings > Alert Delivery**. Enable SMTP, provide the host, port, optional credentials, sender, and comma-separated recipients, then select whether successful runs, failed runs, or both produce alerts. An optional global HTTP(S) webhook receives the same structured job-result event.
 
 SMTP passwords are sealed at rest. Job alerts contain execution metadata and a short failure summary only; script content, resolved vault secrets, and full command output are intentionally excluded.
+
+### Durable Run Output
+
+Every queued dispatch writes ordered stdout and stderr chunks to SQLite before publishing them to the live console. Each chunk has a dispatch-local sequence number, so an operator can reconnect without duplicated or out-of-order output after a browser refresh, WebSocket interruption, or application-instance change. The WebSocket gateway replays durable events before listening for live ones; when WebSockets are unavailable, the browser falls back to durable REST replay.
+
+- `GET /api/executions/dispatch/{dispatchId}/events?after={sequence}` replays all dispatch events after a known sequence.
+- `GET /api/executions/dispatch/{dispatchId}/output/tail?after={sequence}&limit=200` returns persisted stdout/stderr chunks for tailing tools.
+- `GET /api/executions/dispatch/{dispatchId}/output/download` returns the complete plain-text transcript. The **Live Dispatch Console** also provides a **Download log** action.
+- `ws(s)://{host}/api/executions/dispatch/{dispatchId}/socket?after={sequence}` provides replay plus live delivery for authenticated operators. Browser clients negotiate the existing bearer token as a WebSocket subprotocol, so it is not put in the URL.
+
+Before output is persisted or published, POSHinit redacts values from the credential vault and common secret-bearing patterns including bearer tokens, passwords, API keys, and client secrets. Redaction is deliberately one-way: use the original secure system only if a protected secret must be recovered.
+
+### Execution Reliability Controls
+
+Administrators configure **System Settings > Execution Runtime** in a floating operational-controls workspace. Settings are persisted and enforced by the worker, including after restart:
+
+- Independent per-target timeouts and an optional overall dispatch deadline. The Run Planner can override both for an individual dispatch.
+- Global, per-dispatch, and per-machine target concurrency quotas, plus a durable global dispatches-per-minute rate limit.
+- Exponential retry backoff, bounded by configurable base and maximum delays.
+- Per-machine circuit breakers. Repeated failed or timed-out executions open the circuit and defer new work for that target until its cool-down expires; a successful execution resets the circuit.
+- Dead-letter handling. A target that exhausts retries is retained with its reason and attempt count, then an administrator can requeue it from the Runtime dialog.
+- Worker modes: **Active** claims work, **Draining** finishes in-flight work without claiming more, and **Maintenance** pauses claims and rejects new dispatches with `503`.
+
+Administrators can inspect the runtime health summary at `GET /api/reliability/status`, list outstanding dead letters at `GET /api/reliability/dead-letters`, and requeue one using `POST /api/reliability/dead-letters/{id}/requeue`.
 
 ## High-Level Architecture
 
@@ -224,7 +251,9 @@ $apiToken = {{secret:GitHub Automation.token}}
 
 - One-time and recurring schedules
 - Direct machine or deployment-group targeting
-- Manual ad hoc execution
+- Durable manual, scheduled, approval, and webhook dispatches
+- Target-level queue state, retry policy, timeout, cancellation request, and idempotency key
+- Persisted ordered job output events, available to reconnecting live consoles and the API
 - Scheduled execution polling loop
 - Webhook-triggered execution
 - Optional per-schedule webhook triggers with status polling

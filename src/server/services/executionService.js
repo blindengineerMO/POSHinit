@@ -13,7 +13,7 @@ import { syncDynamicGroups } from './groupService.js'
 
 const activeDispatches = new Map()
 
-function buildTargetMachines(scheduleId) {
+export function buildTargetMachines(scheduleId) {
   syncDynamicGroups()
   const machineIds = new Set()
   const directTargets = all(
@@ -88,7 +88,7 @@ function streamSshPowerShell(machine, credential, content, handlers) {
   return { cancel: () => { if (!closed) { closed = true; client.end(); handlers.onClose?.(130) } } }
 }
 
-async function runExecution({ triggerType, scheduleId = null, scriptId, machineId, requestedBy = null, onOutput = null, dispatch = null }) {
+export async function runExecution({ triggerType, scheduleId = null, scriptId, machineId, requestedBy = null, onOutput = null, dispatch = null }) {
   const executionId = nanoid()
   const startedAt = nowIso()
   const script = get('SELECT id, name, content FROM library_entries WHERE id = ?', [scriptId])
@@ -163,7 +163,12 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
       if (dispatch?.cancelled) throw new Error('Execution cancelled by operator')
       result = await new Promise((resolve, reject) => {
         let stdout = ''; let stderr = ''
-        const handlers = { onStdout: (data) => { stdout += data; onOutput({ executionId, type: 'stdout', data }) }, onStderr: (data) => { stderr += data; onOutput({ executionId, type: 'stderr', data }) }, onClose: (code) => resolve({ code, stdout, stderr }), onError: reject }
+        const handlers = {
+          onStdout: (data) => { const safeData = dispatch?.redactOutput?.(data) || data; stdout += safeData; onOutput({ executionId, type: 'stdout', data: safeData }) },
+          onStderr: (data) => { const safeData = dispatch?.redactOutput?.(data) || data; stderr += safeData; onOutput({ executionId, type: 'stderr', data: safeData }) },
+          onClose: (code) => resolve({ code, stdout, stderr }),
+          onError: reject,
+        }
         let runner
         if (machine.transport === 'local') runner = streamLocalPowerShell(executableContent, handlers)
         else if (machine.transport === 'psremoting') runner = streamPsRemoting(options, handlers)
@@ -174,13 +179,18 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
     }
   } catch (error) {
     result = {
-      code: dispatch?.cancelled ? 130 : 1,
+      code: dispatch?.timedOut ? 124 : dispatch?.cancelled ? 130 : 1,
       stdout: '',
-      stderr: dispatch?.cancelled ? 'Execution cancelled by operator' : error.message,
+      stderr: dispatch?.timedOut ? 'Execution timed out' : dispatch?.cancelled ? 'Execution cancelled by operator' : error.message,
     }
   }
 
-  const status = dispatch?.cancelled || result.code === 130 ? 'cancelled' : result.code === 0 ? 'success' : 'failed'
+  if (dispatch?.redactOutput) {
+    result.stdout = dispatch.redactOutput(result.stdout)
+    result.stderr = dispatch.redactOutput(result.stderr)
+  }
+
+  const status = dispatch?.timedOut ? 'timed_out' : dispatch?.cancelled || result.code === 130 ? 'cancelled' : result.code === 0 ? 'success' : 'failed'
   const finishedAt = nowIso()
   const report = {
     machineName: machine.name,
@@ -191,7 +201,9 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
         ? 'Run completed without PowerShell errors.'
         : status === 'cancelled'
           ? 'Run was cancelled by an operator.'
-        : 'Run failed. Inspect stderr and full log stream.',
+          : status === 'timed_out'
+            ? 'Run exceeded its configured timeout.'
+          : 'Run failed. Inspect stderr and full log stream.',
   }
 
   run(
@@ -215,7 +227,7 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
   )
 
   writeLog(
-    status === 'success' ? 'info' : status === 'cancelled' ? 'warning' : 'error',
+    status === 'success' ? 'info' : ['cancelled', 'timed_out'].includes(status) ? 'warning' : 'error',
     'execution',
     `Execution ${status} for ${script.name} on ${machine.name}`,
     {
@@ -225,7 +237,7 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
   )
 
   const execution = get('SELECT * FROM executions WHERE id = ?', [executionId])
-  if (status !== 'cancelled') {
+  if (!['cancelled', 'timed_out'].includes(status)) {
     await sendExecutionAlert({
       id: executionId,
       status,
@@ -251,26 +263,8 @@ async function runExecution({ triggerType, scheduleId = null, scriptId, machineI
 }
 
 export async function executeAdHocRun(payload, requestedBy) {
-  const machineIds = payload.machineIds || []
-  const scriptIds = payload.scriptIds || []
-  const results = []
-
-  for (const scriptId of scriptIds) {
-    for (const machineId of machineIds) {
-      // Sequential execution keeps reports deterministic during the first implementation pass.
-      // The service boundary keeps it ready for a real job queue later.
-      // eslint-disable-next-line no-await-in-loop
-      const result = await runExecution({
-        triggerType: payload.triggerType || 'manual',
-        scriptId,
-        machineId,
-        requestedBy,
-      })
-      results.push(result)
-    }
-  }
-
-  return results
+  const { enqueueDispatch } = await import('./jobQueueService.js')
+  return enqueueDispatch(payload, requestedBy)
 }
 
 export function startAdHocRunStream(payload, requestedBy, onOutput) {
@@ -309,28 +303,15 @@ export async function executeScheduleWebhook(scheduleId) {
   if (!schedule) {
     throw new Error('Schedule not found')
   }
-  const scriptIds = all('SELECT script_id FROM schedule_scripts WHERE schedule_id = ?', [scheduleId]).map((row) => row.script_id)
-  const machineIds = buildTargetMachines(scheduleId)
-  const results = []
-
-  for (const scriptId of scriptIds) {
-    for (const machineId of machineIds) {
-      // Sequential execution preserves ordered webhook results and prevents target contention.
-      // eslint-disable-next-line no-await-in-loop
-      results.push(await runExecution({ triggerType: 'schedule-webhook', scheduleId, scriptId, machineId, requestedBy: schedule.created_by }))
-    }
-  }
-  return results
+  const { enqueueScheduleDispatch } = await import('./jobQueueService.js')
+  return enqueueScheduleDispatch(scheduleId, 'schedule-webhook', schedule.created_by)
 }
 
 export async function executeApprovedSchedule(scheduleId, requestedBy) {
   const schedule = get('SELECT id, created_by FROM schedules WHERE id = ?', [scheduleId])
   if (!schedule) throw new Error('Schedule not found')
-  const scriptIds = all('SELECT script_id FROM schedule_scripts WHERE schedule_id = ?', [scheduleId]).map((row) => row.script_id)
-  const machineIds = buildTargetMachines(scheduleId)
-  const results = []
-  for (const scriptId of scriptIds) for (const machineId of machineIds) results.push(await runExecution({ triggerType: 'approval', scheduleId, scriptId, machineId, requestedBy }))
-  return results
+  const { enqueueScheduleDispatch } = await import('./jobQueueService.js')
+  return enqueueScheduleDispatch(scheduleId, 'approval', requestedBy)
 }
 
 export async function processDueSchedules() {
@@ -342,14 +323,8 @@ export async function processDueSchedules() {
       markScheduleExecuted(schedule.id, schedule.mode === 'once' ? null : computeNextRun(schedule, new Date()))
       continue
     }
-    const scriptIds = all('SELECT script_id FROM schedule_scripts WHERE schedule_id = ?', [schedule.id]).map(
-      (row) => row.script_id,
-    )
-    const machineIds = buildTargetMachines(schedule.id)
-
-    for (const scriptId of scriptIds) {
-      await Promise.all(machineIds.map((machineId) => runExecution({ triggerType: 'schedule', scheduleId: schedule.id, scriptId, machineId, requestedBy: schedule.created_by })))
-    }
+    const { enqueueScheduleDispatch } = await import('./jobQueueService.js')
+    enqueueScheduleDispatch(schedule.id, 'schedule', schedule.created_by)
 
     const nextRunAt = schedule.mode === 'once' ? null : computeNextRun(schedule, new Date())
     markScheduleExecuted(schedule.id, nextRunAt)

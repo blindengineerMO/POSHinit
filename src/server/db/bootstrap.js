@@ -203,6 +203,117 @@ function createTables() {
       FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS job_dispatches (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      trigger_type TEXT NOT NULL,
+      schedule_id TEXT,
+      requested_by TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      cancel_requested INTEGER NOT NULL DEFAULT 0,
+      retry_limit INTEGER NOT NULL DEFAULT 0,
+      timeout_seconds INTEGER NOT NULL DEFAULT 3600,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      queued_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE SET NULL,
+      FOREIGN KEY (requested_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS job_targets (
+      id TEXT PRIMARY KEY,
+      dispatch_id TEXT NOT NULL,
+      script_id TEXT NOT NULL,
+      machine_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempt INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 1,
+      timeout_seconds INTEGER NOT NULL DEFAULT 3600,
+      available_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      execution_id TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (dispatch_id) REFERENCES job_dispatches(id) ON DELETE CASCADE,
+      FOREIGN KEY (script_id) REFERENCES library_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE CASCADE,
+      FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS job_targets_claim_idx ON job_targets(status, available_at, created_at);
+    CREATE INDEX IF NOT EXISTS job_targets_dispatch_idx ON job_targets(dispatch_id, status);
+
+    CREATE TABLE IF NOT EXISTS job_rate_limits (
+      scope TEXT PRIMARY KEY,
+      window_started_at TEXT NOT NULL,
+      request_count INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS machine_circuits (
+      machine_id TEXT PRIMARY KEY,
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      state TEXT NOT NULL DEFAULT 'closed',
+      opened_at TEXT,
+      open_until TEXT,
+      last_error TEXT,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS job_dead_letters (
+      id TEXT PRIMARY KEY,
+      target_id TEXT NOT NULL UNIQUE,
+      dispatch_id TEXT NOT NULL,
+      machine_id TEXT NOT NULL,
+      script_id TEXT NOT NULL,
+      attempts INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      resolved_at TEXT,
+      FOREIGN KEY (target_id) REFERENCES job_targets(id) ON DELETE CASCADE,
+      FOREIGN KEY (dispatch_id) REFERENCES job_dispatches(id) ON DELETE CASCADE,
+      FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE CASCADE,
+      FOREIGN KEY (script_id) REFERENCES library_entries(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS job_dead_letters_open_idx ON job_dead_letters(resolved_at, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS job_events (
+      id TEXT PRIMARY KEY,
+      dispatch_id TEXT NOT NULL,
+      target_id TEXT,
+      sequence INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(dispatch_id, sequence),
+      FOREIGN KEY (dispatch_id) REFERENCES job_dispatches(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_id) REFERENCES job_targets(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS job_events_dispatch_idx ON job_events(dispatch_id, sequence);
+
+    CREATE TABLE IF NOT EXISTS job_output_chunks (
+      id TEXT PRIMARY KEY,
+      dispatch_id TEXT NOT NULL,
+      target_id TEXT,
+      sequence INTEGER NOT NULL,
+      stream TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(dispatch_id, sequence),
+      FOREIGN KEY (dispatch_id) REFERENCES job_dispatches(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_id) REFERENCES job_targets(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS job_output_chunks_tail_idx ON job_output_chunks(dispatch_id, sequence DESC);
+
     CREATE TABLE IF NOT EXISTS logs (
       id TEXT PRIMARY KEY,
       level TEXT NOT NULL,
@@ -267,6 +378,12 @@ function ensureCredentialSecretSchema() {
   if (!columns.includes('secret_type')) db.exec("ALTER TABLE credentials ADD COLUMN secret_type TEXT NOT NULL DEFAULT 'username_password'")
 }
 
+function ensureJobReliabilitySchema() {
+  const dispatchColumns = db.prepare('PRAGMA table_info(job_dispatches)').all().map((column) => column.name)
+  if (!dispatchColumns.includes('job_timeout_seconds')) db.exec('ALTER TABLE job_dispatches ADD COLUMN job_timeout_seconds INTEGER NOT NULL DEFAULT 0')
+  if (!dispatchColumns.includes('deadline_at')) db.exec('ALTER TABLE job_dispatches ADD COLUMN deadline_at TEXT')
+}
+
 function seedSettings() {
   if (all('SELECT key FROM settings').length) {
     return
@@ -293,6 +410,17 @@ function seedSettings() {
     runtime: {
       defaultShell: 'pwsh',
       allowManualRuns: true,
+      workerMode: 'active',
+      maxConcurrentTargets: 4,
+      maxConcurrentPerDispatch: 2,
+      maxConcurrentPerMachine: 1,
+      maxDispatchesPerMinute: 60,
+      defaultTargetTimeoutSeconds: 3600,
+      defaultJobTimeoutSeconds: 0,
+      retryBaseSeconds: 5,
+      retryMaxSeconds: 300,
+      circuitFailureThreshold: 3,
+      circuitOpenSeconds: 300,
     },
   }
 
@@ -589,6 +717,7 @@ export function initializeDatabase() {
   ensureUserIdentitySchema()
   ensureScheduleWebhookSchema()
   ensureCredentialSecretSchema()
+  ensureJobReliabilitySchema()
   ensureScriptParameterSchema()
   ensureDynamicGroupSchema()
   seedSettings()

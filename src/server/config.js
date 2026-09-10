@@ -32,6 +32,7 @@ export const config = {
     redirectUri: process.env.ENTRA_REDIRECT_URI || `${publicAppUrl}/auth/entra/callback`,
   },
   schedulerPollMs: Number(process.env.SCHEDULER_POLL_MS || 15000),
+  workerPollMs: Number(process.env.WORKER_POLL_MS || 1000),
   demoPassword: process.env.DEMO_PASSWORD || 'ChangeMe123!',
   webhookSecret: process.env.WEBHOOK_SECRET || 'poshinit-webhook-secret',
 }

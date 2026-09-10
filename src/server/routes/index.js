@@ -2,11 +2,12 @@ import express from 'express'
 import multer from 'multer'
 import path from 'node:path'
 import { config } from '../config.js'
+import { all } from '../db/client.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
-import { cancelAdHocRunStream, executeAdHocRun, executeApprovedSchedule, executeScheduleWebhook, startAdHocRunStream } from '../services/executionService.js'
+import { buildTargetMachines, executeApprovedSchedule } from '../services/executionService.js'
 import { decideApproval, listApprovals } from '../services/approvalService.js'
 import { listGroups, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
@@ -25,6 +26,7 @@ import { cancelTerminalCommand, connectTerminal, disconnectTerminal, runTerminal
 import { encryptSecret } from '../utils/crypto.js'
 import { beginEntraSignIn, consumeEnterpriseTicket, enterpriseFailureRedirect, enterpriseSignInFailure, entraStatus, finishEntraSignIn } from '../services/entraService.js'
 import { deleteNotificationPolicy, listNotificationPolicies, saveNotificationPolicy, setNotificationPolicyEnabled, testNotificationPolicy } from '../services/notificationPolicyService.js'
+import { downloadDispatchOutput, enqueueDispatch, getDispatch, getReliabilityStatus, listDeadLetters, listDispatchEvents, requeueDeadLetter, requestDispatchCancellation, subscribeDispatch, tailDispatchOutput } from '../services/jobQueueService.js'
 
 const upload = multer({
   dest: path.join(config.uploadsDir),
@@ -74,16 +76,7 @@ export function createRouter() {
       return
     }
 
-    res.json(
-      await executeAdHocRun(
-        {
-          triggerType: 'webhook',
-          scriptIds: req.body.scriptIds || [],
-          machineIds: req.body.machineIds || [],
-        },
-        null,
-      ),
-    )
+    res.status(202).json(enqueueDispatch({ triggerType: 'webhook', scriptIds: req.body.scriptIds || [], machineIds: req.body.machineIds || [] }, null, { idempotencyKey: req.get('Idempotency-Key') }))
   })
 
   function webhookToken(req) {
@@ -108,8 +101,8 @@ export function createRouter() {
   router.post('/webhooks/schedules/:scheduleId/:webhookKey', async (req, res) => {
     const schedule = verifiedScheduleWebhook(req, res)
     if (!schedule) return
-    const executions = await executeScheduleWebhook(schedule.id)
-    return res.json({ schedule: getScheduleWebhookStatus(schedule.id), executions })
+    const dispatch = enqueueDispatch({ scriptIds: all('SELECT script_id FROM schedule_scripts WHERE schedule_id = ?', [schedule.id]).map((row) => row.script_id), machineIds: buildTargetMachines(schedule.id), triggerType: 'schedule-webhook' }, schedule.created_by, { scheduleId: schedule.id, triggerType: 'schedule-webhook', idempotencyKey: req.get('Idempotency-Key') })
+    return res.status(202).json({ schedule: getScheduleWebhookStatus(schedule.id), dispatch })
   })
 
   router.use('/api', requireAuth)
@@ -259,19 +252,44 @@ export function createRouter() {
     return res.json({ url: `${config.publicAppUrl}/webhooks/schedules/${webhook.id}/${webhook.webhook_key}`, token: webhook.webhook_token })
   })
 
-  router.post('/api/executions/run', requirePermission('runs:execute'), async (req, res) => {
-    res.json(await executeAdHocRun(req.body, req.user.id))
+  router.post('/api/executions/run', requirePermission('runs:execute'), (req, res) => {
+    const dispatch = enqueueDispatch(req.body, req.user.id, { idempotencyKey: req.get('Idempotency-Key') })
+    res.status(dispatch.reused ? 200 : 202).json(dispatch)
   })
-  router.post('/api/executions/run/stream', requirePermission('runs:execute'), async (req, res) => {
+  router.post('/api/executions/run/stream', requirePermission('runs:execute'), (req, res) => {
+    const dispatch = enqueueDispatch(req.body, req.user.id, { idempotencyKey: req.get('Idempotency-Key') })
     res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     res.flushHeaders()
     const emit = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`)
-    const stream = startAdHocRunStream(req.body, req.user.id, emit)
-    emit({ type: 'dispatch', dispatchId: stream.dispatchId })
-    try { await stream.promise; res.end() } catch (error) { emit({ type: 'error', data: error.message }); res.end() }
+    let unsubscribe = () => {}
+    let completed = false
+    const forward = (event) => {
+      emit({ type: event.type, targetId: event.targetId, sequence: event.sequence, ...event.data })
+      if (event.type === 'dispatch-complete') { completed = true; unsubscribe(); res.end() }
+    }
+    listDispatchEvents(dispatch.id).forEach(forward)
+    if (completed) return
+    unsubscribe = subscribeDispatch(dispatch.id, forward)
+    req.on('close', unsubscribe)
   })
   router.post('/api/executions/dispatch/:dispatchId/cancel', requirePermission('runs:execute'), (req, res) => {
-    res.json({ cancelled: cancelAdHocRunStream(req.params.dispatchId) })
+    res.json({ cancelled: requestDispatchCancellation(req.params.dispatchId) })
+  })
+  router.get('/api/executions/dispatch/:dispatchId', requirePermission('runs:execute'), (req, res) => {
+    const dispatch = getDispatch(req.params.dispatchId)
+    if (!dispatch) return res.status(404).json({ error: 'Dispatch not found' })
+    return res.json(dispatch)
+  })
+  router.get('/api/executions/dispatch/:dispatchId/events', requirePermission('runs:execute'), (req, res) => {
+    res.json(listDispatchEvents(req.params.dispatchId, req.query.after))
+  })
+  router.get('/api/executions/dispatch/:dispatchId/output/tail', requirePermission('runs:execute'), (req, res) => {
+    if (!getDispatch(req.params.dispatchId)) return res.status(404).json({ error: 'Dispatch not found' })
+    return res.json(tailDispatchOutput(req.params.dispatchId, req.query.limit, req.query.after))
+  })
+  router.get('/api/executions/dispatch/:dispatchId/output/download', requirePermission('runs:execute'), (req, res) => {
+    if (!getDispatch(req.params.dispatchId)) return res.status(404).json({ error: 'Dispatch not found' })
+    res.attachment(`poshinit-dispatch-${req.params.dispatchId}.log`).type('text/plain').send(downloadDispatchOutput(req.params.dispatchId))
   })
 
   router.get('/api/users', requirePermission('identity:manage'), (_req, res) => {
@@ -295,6 +313,10 @@ export function createRouter() {
   })
 
   router.post('/api/settings/:key', (req, res) => {
+    if (req.params.key === 'runtime') {
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure execution reliability controls' })
+      return res.json(saveSettings('runtime', req.body))
+    }
     if (req.params.key === 'entra') {
       if (req.user.role !== 'admin') {
         res.status(403).json({ error: 'Only administrators can configure Microsoft Entra ID' })
@@ -325,6 +347,19 @@ export function createRouter() {
     if (req.params.key === 'proxmox') { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Proxmox' }); return res.json(saveProxmoxSettings(req.body)) }
 
     res.json(saveSettings(req.params.key, req.body))
+  })
+
+  router.get('/api/reliability/status', requirePermission('settings:manage'), (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can view execution reliability controls' })
+    return res.json(getReliabilityStatus())
+  })
+  router.get('/api/reliability/dead-letters', requirePermission('settings:manage'), (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can view dead-letter targets' })
+    return res.json(listDeadLetters())
+  })
+  router.post('/api/reliability/dead-letters/:id/requeue', requirePermission('settings:manage'), (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can requeue dead-letter targets' })
+    return res.json({ requeued: requeueDeadLetter(req.params.id) })
   })
 
   router.get('/api/notification-policies', (_req, res) => { res.json(listNotificationPolicies()) })

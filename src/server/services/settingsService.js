@@ -47,6 +47,29 @@ function publicNotificationSettings(value = {}) {
   }
 }
 
+function bounded(value, fallback, minimum, maximum) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.max(minimum, Math.min(maximum, Math.floor(parsed))) : fallback
+}
+
+export function normalizeRuntimeSettings(value = {}) {
+  return {
+    defaultShell: String(value.defaultShell || 'pwsh'),
+    allowManualRuns: value.allowManualRuns !== false,
+    workerMode: ['active', 'draining', 'maintenance'].includes(value.workerMode) ? value.workerMode : 'active',
+    maxConcurrentTargets: bounded(value.maxConcurrentTargets, 4, 1, 100),
+    maxConcurrentPerDispatch: bounded(value.maxConcurrentPerDispatch, 2, 1, 50),
+    maxConcurrentPerMachine: bounded(value.maxConcurrentPerMachine, 1, 1, 20),
+    maxDispatchesPerMinute: bounded(value.maxDispatchesPerMinute, 60, 0, 10000),
+    defaultTargetTimeoutSeconds: bounded(value.defaultTargetTimeoutSeconds, 3600, 10, 86400),
+    defaultJobTimeoutSeconds: bounded(value.defaultJobTimeoutSeconds, 0, 0, 604800),
+    retryBaseSeconds: bounded(value.retryBaseSeconds, 5, 1, 3600),
+    retryMaxSeconds: bounded(value.retryMaxSeconds, 300, 1, 86400),
+    circuitFailureThreshold: bounded(value.circuitFailureThreshold, 3, 1, 100),
+    circuitOpenSeconds: bounded(value.circuitOpenSeconds, 300, 10, 86400),
+  }
+}
+
 export function getSettings() {
   const settings = ['branding', 'vcenter', 'azureArc', 'proxmox', 'runtime'].reduce((accumulator, key) => {
     accumulator[key] = readSetting(key)
@@ -54,11 +77,12 @@ export function getSettings() {
   }, {})
   settings.entra = getEntraSettings()
   settings.notifications = getNotificationSettings()
+  settings.runtime = normalizeRuntimeSettings(settings.runtime)
   return settings
 }
 
 export function saveSettings(key, value) {
-  writeSetting(key, value)
+  writeSetting(key, key === 'runtime' ? normalizeRuntimeSettings(value) : value)
   return getSettings()[key]
 }
 
