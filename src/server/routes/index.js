@@ -14,7 +14,7 @@ import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFi
 import { searchLogs } from '../services/logService.js'
 import { listMachines, saveCredential, saveMachine, testMachineCandidate, testMachineConnection, uploadAsset } from '../services/machineService.js'
 import { getSubnetScan, importSubnetScan, startSubnetScan } from '../services/subnetScanService.js'
-import { getSettings, saveEntraSettings, saveNotificationSettings, saveSettings } from '../services/settingsService.js'
+import { getSettings, saveEntraSettings, saveNotificationSettings, saveSecretProviderSettings, saveSettings } from '../services/settingsService.js'
 import { getScheduleWebhook, getScheduleWebhookStatus, getWebhookSchedule, listSchedules, saveSchedule } from '../services/scheduleService.js'
 import { listTeams, saveTeam } from '../services/teamService.js'
 import { listUsers, saveUser } from '../services/userService.js'
@@ -349,6 +349,12 @@ export function createRouter() {
       }
       res.json(saveNotificationSettings(req.body))
       return
+    }
+
+    if (req.params.key === 'secretProviders') {
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure external secret providers' })
+      assertResourcePermission(req.user, 'admin', 'integration', 'secret-providers')
+      return res.json(saveSecretProviderSettings(req.body))
     }
 
     if (req.params.key === 'vcenter') {

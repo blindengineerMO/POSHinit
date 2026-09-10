@@ -10,6 +10,7 @@ import { sendExecutionAlert } from './notificationService.js'
 import { dispatchNotificationEvent } from './notificationPolicyService.js'
 import { requestScheduleApproval } from './approvalService.js'
 import { syncDynamicGroups } from './groupService.js'
+import { redactText } from './outputRedactionService.js'
 
 const activeDispatches = new Map()
 
@@ -123,10 +124,14 @@ export async function runExecution({ triggerType, scheduleId = null, scriptId, m
 
   let result
   let executableContent
+  let executionSecretValues = []
+  const redactExecutionOutput = (value) => redactText(dispatch?.redactOutput ? dispatch.redactOutput(value) : value, executionSecretValues)
   try {
     // Templates are resolved only in memory after the run has been recorded.
     const scheduleValues = scheduleId ? JSON.parse(get('SELECT parameters_json FROM schedule_scripts WHERE schedule_id = ? AND script_id = ?', [scheduleId, scriptId])?.parameters_json || '{}') : {}
-    executableContent = parameterPreamble(scheduleValues) + injectSecretTemplates(script.content)
+    const injected = await injectSecretTemplates(script.content, { executionId, scriptId, machineId })
+    executionSecretValues = injected.secretValues
+    executableContent = parameterPreamble(scheduleValues) + injected.content
     if (!onOutput && machine.transport === 'local') {
       result = await executeLocalPowerShell(executableContent)
     } else if (!onOutput && machine.transport === 'psremoting') {
@@ -164,8 +169,8 @@ export async function runExecution({ triggerType, scheduleId = null, scriptId, m
       result = await new Promise((resolve, reject) => {
         let stdout = ''; let stderr = ''
         const handlers = {
-          onStdout: (data) => { const safeData = dispatch?.redactOutput?.(data) || data; stdout += safeData; onOutput({ executionId, type: 'stdout', data: safeData }) },
-          onStderr: (data) => { const safeData = dispatch?.redactOutput?.(data) || data; stderr += safeData; onOutput({ executionId, type: 'stderr', data: safeData }) },
+          onStdout: (data) => { const safeData = redactExecutionOutput(data); stdout += safeData; onOutput({ executionId, type: 'stdout', data: safeData }) },
+          onStderr: (data) => { const safeData = redactExecutionOutput(data); stderr += safeData; onOutput({ executionId, type: 'stderr', data: safeData }) },
           onClose: (code) => resolve({ code, stdout, stderr }),
           onError: reject,
         }
@@ -185,10 +190,8 @@ export async function runExecution({ triggerType, scheduleId = null, scriptId, m
     }
   }
 
-  if (dispatch?.redactOutput) {
-    result.stdout = dispatch.redactOutput(result.stdout)
-    result.stderr = dispatch.redactOutput(result.stderr)
-  }
+  result.stdout = redactExecutionOutput(result.stdout)
+  result.stderr = redactExecutionOutput(result.stderr)
 
   const status = dispatch?.timedOut ? 'timed_out' : dispatch?.cancelled || result.code === 130 ? 'cancelled' : result.code === 0 ? 'success' : 'failed'
   const finishedAt = nowIso()

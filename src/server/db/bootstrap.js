@@ -387,6 +387,25 @@ function createTables() {
 
     CREATE INDEX IF NOT EXISTS access_grants_subject_idx ON access_grants(subject_type, subject_id);
     CREATE INDEX IF NOT EXISTS access_grants_scope_idx ON access_grants(resource_type, resource_id, action);
+
+    CREATE TABLE IF NOT EXISTS external_secret_accesses (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      provider_kind TEXT NOT NULL,
+      secret_reference TEXT NOT NULL,
+      property_name TEXT,
+      execution_id TEXT,
+      script_id TEXT,
+      machine_id TEXT,
+      status TEXT NOT NULL,
+      error_code TEXT,
+      accessed_at TEXT NOT NULL,
+      FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE SET NULL,
+      FOREIGN KEY (script_id) REFERENCES library_entries(id) ON DELETE SET NULL,
+      FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS external_secret_accesses_audit_idx ON external_secret_accesses(provider_id, accessed_at DESC);
   `)
 }
 
@@ -461,6 +480,7 @@ function seedSettings() {
       connectors: [],
     },
     proxmox: { connectors: [] },
+    secretProviders: { providers: [] },
     notifications: {
       defaultChannel: 'log',
       notifyOnFailure: true,

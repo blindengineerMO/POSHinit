@@ -71,14 +71,47 @@ export function normalizeRuntimeSettings(value = {}) {
 }
 
 export function getSettings() {
-  const settings = ['branding', 'vcenter', 'azureArc', 'proxmox', 'runtime'].reduce((accumulator, key) => {
+  const settings = ['branding', 'vcenter', 'azureArc', 'proxmox', 'runtime', 'secretProviders'].reduce((accumulator, key) => {
     accumulator[key] = readSetting(key)
     return accumulator
   }, {})
   settings.entra = getEntraSettings()
   settings.notifications = getNotificationSettings()
   settings.runtime = normalizeRuntimeSettings(settings.runtime)
+  settings.secretProviders = publicSecretProviderSettings(settings.secretProviders)
   return settings
+}
+
+function publicSecretProviderSettings(value = {}) {
+  return {
+    providers: (Array.isArray(value.providers) ? value.providers : []).map(({ clientSecretEncrypted, tokenEncrypted, ...provider }) => ({
+      ...provider,
+      clientSecretConfigured: Boolean(clientSecretEncrypted),
+      tokenConfigured: Boolean(tokenEncrypted),
+    })),
+  }
+}
+
+export function getStoredSecretProviderSettings() { return readSetting('secretProviders') }
+
+export function saveSecretProviderSettings(value = {}) {
+  const existing = readSetting('secretProviders')
+  const existingById = new Map((existing.providers || []).map((provider) => [provider.id, provider]))
+  const supported = new Set(['azure-key-vault', 'hashicorp-vault', 'cyberark', 'aws-secrets-manager', 'gcp-secret-manager'])
+  const providers = (Array.isArray(value.providers) ? value.providers : []).map((raw) => {
+    if (!supported.has(raw.kind)) throw new Error('Unsupported secret provider type')
+    const prior = existingById.get(raw.id) || {}
+    const clientSecret = String(raw.clientSecret || '').trim()
+    const token = String(raw.token || '').trim()
+    const base = { id: String(raw.id || '').trim(), name: String(raw.name || '').trim(), kind: raw.kind, enabled: raw.enabled !== false, vaultUrl: String(raw.vaultUrl || '').trim().replace(/\/$/, ''), tenantId: String(raw.tenantId || '').trim(), clientId: String(raw.clientId || '').trim(), namespace: String(raw.namespace || '').trim(), mountPath: String(raw.mountPath || 'secret').trim() }
+    if (!base.id || !base.name) throw new Error('Every secret provider requires an ID and name')
+    if (base.kind === 'azure-key-vault' && (!base.vaultUrl || !base.tenantId || !base.clientId || !(clientSecret || prior.clientSecretEncrypted))) throw new Error('Azure Key Vault requires vault URL, tenant ID, client ID, and client secret')
+    if (base.kind === 'hashicorp-vault' && (!base.vaultUrl || !(token || prior.tokenEncrypted))) throw new Error('HashiCorp Vault requires URL and token authentication')
+    return { ...base, clientSecretEncrypted: clientSecret ? encryptSecret(clientSecret) : prior.clientSecretEncrypted || '', tokenEncrypted: token ? encryptSecret(token) : prior.tokenEncrypted || '' }
+  })
+  const next = { providers }
+  writeSetting('secretProviders', next)
+  return publicSecretProviderSettings(next)
 }
 
 export function saveSettings(key, value) {

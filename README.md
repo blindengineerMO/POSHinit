@@ -254,6 +254,16 @@ $apiToken = {{secret:GitHub Automation.token}}
 - Username/password secrets support `.username` and `.password`.
 - Domain credentials support `.username`, `.password`, and `.domain`.
 - Token secrets support `.token`.
+
+### External Secret Providers
+
+Administrators configure external providers in **System Settings > External Secret Providers**. Provider credentials are sealed at rest; resolved secret values are never stored in POSHinit. Azure Key Vault and HashiCorp Vault are implemented now, while the provider interface also reserves CyberArk, AWS Secrets Manager, and Google Secret Manager connectors for future deployment-specific adapters.
+
+- **Azure Key Vault** uses a Microsoft Entra application tenant ID, client ID, and client secret to acquire a data-plane token. Grant that application the least-privilege Key Vault secret-read data role.
+- **HashiCorp Vault** uses a Vault URL, KV mount path, optional namespace, and a scoped Vault token. Use a token policy that can read only the referenced paths.
+- Use `{{external:provider-id:secret-name}}` for an Azure Key Vault secret. Use `{{external:provider-id:path/to/secret#field}}` to read a field from a HashiCorp Vault KV record; omit `#field` only when the provider returns a direct string or `value` field.
+- External values are resolved immediately before each target execution, remain only in process memory, and are included in that execution’s redaction set before output, events, reports, or downloadable logs are persisted.
+- Each retrieval writes only provider ID/type, reference, requested field, execution/script/machine IDs, timestamp, and success/failure metadata to `external_secret_accesses`. Secret values are never written to the audit table or application log.
 - Secret names are matched case-insensitively. Resolved values are escaped as PowerShell single-quoted literals.
 - Do not write a resolved value to stdout, stderr, a transcript, or an external command line: run output is retained for reporting and can expose it.
 
