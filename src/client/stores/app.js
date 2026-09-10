@@ -291,6 +291,9 @@ export const useAppStore = defineStore('app', {
       })
       this.catalog.teams = await this.api('/api/teams')
     },
+    async getAccessGrants() { return this.api('/api/access-grants') },
+    async saveAccessGrant(grant) { return this.api('/api/access-grants', { method: 'POST', body: JSON.stringify(grant) }) },
+    async deleteAccessGrant(id) { return this.api(`/api/access-grants/${id}`, { method: 'DELETE' }) },
     async saveSettings(key, value) {
       const result = await this.api(`/api/settings/${key}`, {
         method: 'POST',

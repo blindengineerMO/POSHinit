@@ -1,5 +1,5 @@
 import { get } from '../db/client.js'
-import { hasPermission } from '../services/rbacService.js'
+import { assertResourcePermission, hasPermission } from '../services/rbacService.js'
 import { verifyToken } from '../utils/crypto.js'
 
 export function requireAuth(req, _res, next) {
@@ -36,5 +36,16 @@ export function requirePermission(permission) {
     const error = new Error(`Your role does not have permission to ${permission}`)
     error.statusCode = 403
     return next(error)
+  }
+}
+
+export function requireResourcePermission(action, resourceType, resolveId = (req) => req.params.id || req.body?.id || '*') {
+  return (req, _res, next) => {
+    try {
+      assertResourcePermission(req.user, action, resourceType, resolveId(req))
+      return next()
+    } catch (error) {
+      return next(error)
+    }
   }
 }

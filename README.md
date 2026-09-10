@@ -112,6 +112,16 @@ Configure a **Web** redirect URI in the Microsoft Entra app registration that ex
 
 An Entra-authenticated identity does not create an operator automatically. In **Access Control**, create or edit the operator, enable **Allow enterprise sign-in**, and enter the Entra UPN/email returned at sign-in. Entra tenant policy controls MFA and Conditional Access. The system audit log records local and enterprise sign-in successes, failed attempts, enterprise callback failures, and sign-outs.
 
+### Resource-Scoped RBAC
+
+Roles remain a coarse platform baseline for navigation and non-resource actions, but sensitive automation operations now require a durable, explicit resource-scoped grant. Administrators retain break-glass access; users and teams receive only the grants assigned in **Access Control > Scoped Grants**.
+
+- Grant actions are `use`, `approve`, `edit`, `admin`, and `audit`. An `admin` grant covers the other actions within its scope.
+- Grants can target an organization, project, environment, folder, runbook, inventory node, credential, integration, or execution resource. A resource ID of `*` grants that action for all resources of the selected type.
+- Organization, project, and environment constraints can further narrow any grant. Existing installations migrate into `Default Organization > Default Project > Production` without changing resource IDs.
+- Folder grants inherit to child runbooks. Dispatch authorization checks require `use` for every selected runbook, node, attached credential, and execution scope. Script edits, inventory/credential changes, approval decisions, terminal connections, and integration configuration are similarly checked server-side.
+- Grants may be assigned to a user or team; team membership is evaluated at request time. The API exposes admin-only `GET/POST /api/access-grants` and `DELETE /api/access-grants/{id}` endpoints.
+
 ### SMTP And Webhook Job Alerts
 
 Administrators configure delivery in **System Settings > Alert Delivery**. Enable SMTP, provide the host, port, optional credentials, sender, and comma-separated recipients, then select whether successful runs, failed runs, or both produce alerts. An optional global HTTP(S) webhook receives the same structured job-result event.

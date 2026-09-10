@@ -341,6 +341,52 @@ function createTables() {
       value_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(organization_id, name),
+      FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS environments (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(project_id, name),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS access_grants (
+      id TEXT PRIMARY KEY,
+      subject_type TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      resource_type TEXT NOT NULL DEFAULT '*',
+      resource_id TEXT NOT NULL DEFAULT '*',
+      organization_id TEXT,
+      project_id TEXT,
+      environment_id TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS access_grants_subject_idx ON access_grants(subject_type, subject_id);
+    CREATE INDEX IF NOT EXISTS access_grants_scope_idx ON access_grants(resource_type, resource_id, action);
   `)
 }
 
@@ -382,6 +428,19 @@ function ensureJobReliabilitySchema() {
   const dispatchColumns = db.prepare('PRAGMA table_info(job_dispatches)').all().map((column) => column.name)
   if (!dispatchColumns.includes('job_timeout_seconds')) db.exec('ALTER TABLE job_dispatches ADD COLUMN job_timeout_seconds INTEGER NOT NULL DEFAULT 0')
   if (!dispatchColumns.includes('deadline_at')) db.exec('ALTER TABLE job_dispatches ADD COLUMN deadline_at TEXT')
+}
+
+function ensureScopedRbacSchema() {
+  const resourceTables = ['library_entries', 'machines', 'credentials', 'deployment_groups', 'schedules']
+  resourceTables.forEach((table) => {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name)
+    if (!columns.includes('project_id')) db.exec(`ALTER TABLE ${table} ADD COLUMN project_id TEXT NOT NULL DEFAULT 'project-default'`)
+    if (!columns.includes('environment_id')) db.exec(`ALTER TABLE ${table} ADD COLUMN environment_id TEXT NOT NULL DEFAULT 'env-default'`)
+  })
+  const timestamp = nowIso()
+  run("INSERT OR IGNORE INTO organizations (id, name, created_at, updated_at) VALUES ('org-default', 'Default Organization', ?, ?)", [timestamp, timestamp])
+  run("INSERT OR IGNORE INTO projects (id, organization_id, name, created_at, updated_at) VALUES ('project-default', 'org-default', 'Default Project', ?, ?)", [timestamp, timestamp])
+  run("INSERT OR IGNORE INTO environments (id, project_id, name, created_at, updated_at) VALUES ('env-default', 'project-default', 'Production', ?, ?)", [timestamp, timestamp])
 }
 
 function seedSettings() {
@@ -718,6 +777,7 @@ export function initializeDatabase() {
   ensureScheduleWebhookSchema()
   ensureCredentialSecretSchema()
   ensureJobReliabilitySchema()
+  ensureScopedRbacSchema()
   ensureScriptParameterSchema()
   ensureDynamicGroupSchema()
   seedSettings()

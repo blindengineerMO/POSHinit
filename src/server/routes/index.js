@@ -3,7 +3,7 @@ import multer from 'multer'
 import path from 'node:path'
 import { config } from '../config.js'
 import { all } from '../db/client.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, requireResourcePermission } from '../middleware/auth.js'
 import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
@@ -27,6 +27,7 @@ import { encryptSecret } from '../utils/crypto.js'
 import { beginEntraSignIn, consumeEnterpriseTicket, enterpriseFailureRedirect, enterpriseSignInFailure, entraStatus, finishEntraSignIn } from '../services/entraService.js'
 import { deleteNotificationPolicy, listNotificationPolicies, saveNotificationPolicy, setNotificationPolicyEnabled, testNotificationPolicy } from '../services/notificationPolicyService.js'
 import { downloadDispatchOutput, enqueueDispatch, getDispatch, getReliabilityStatus, listDeadLetters, listDispatchEvents, requeueDeadLetter, requestDispatchCancellation, subscribeDispatch, tailDispatchOutput } from '../services/jobQueueService.js'
+import { assertDispatchPermissions, assertResourcePermission, deleteAccessGrant, listAccessGrants, listScopeHierarchy, saveAccessGrant } from '../services/rbacService.js'
 
 const upload = multer({
   dest: path.join(config.uploadsDir),
@@ -129,11 +130,11 @@ export function createRouter() {
     res.json(listLibrary())
   })
 
-  router.post('/api/library', requirePermission('library:manage'), (req, res) => {
+  router.post('/api/library', requirePermission('library:manage'), requireResourcePermission('edit', 'runbook'), (req, res) => {
     res.json(saveLibraryEntry(req.body, req.user.id))
   })
 
-  router.delete('/api/library/:id', requirePermission('library:manage'), (req, res) => {
+  router.delete('/api/library/:id', requirePermission('library:manage'), requireResourcePermission('edit', 'runbook'), (req, res) => {
     deleteLibraryEntry(req.params.id)
     res.status(204).end()
   })
@@ -161,11 +162,11 @@ export function createRouter() {
     return res.attachment(asset.entry.name).type('text/plain').send(asset.entry.content || '')
   })
 
-  router.post('/api/library/assets', requirePermission('library:manage'), upload.single('file'), (req, res) => {
+  router.post('/api/library/assets', requirePermission('library:manage'), requireResourcePermission('edit', 'runbook'), upload.single('file'), (req, res) => {
     res.json(uploadAsset(req.file))
   })
 
-  router.post('/api/library/import', requirePermission('library:manage'), upload.single('file'), (req, res) => {
+  router.post('/api/library/import', requirePermission('library:manage'), requireResourcePermission('edit', 'runbook'), upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required' })
     return res.json(importLibraryFile(req.file, req.body, req.user.id))
   })
@@ -178,11 +179,11 @@ export function createRouter() {
     res.json(listMachines())
   })
 
-  router.post('/api/machines', requirePermission('inventory:manage'), (req, res) => {
+  router.post('/api/machines', requirePermission('inventory:manage'), requireResourcePermission('edit', 'inventory'), (req, res) => {
     res.json(saveMachine(req.body))
   })
 
-  router.post('/api/machines/:id/test', requirePermission('inventory:manage'), async (req, res) => {
+  router.post('/api/machines/:id/test', requirePermission('inventory:manage'), requireResourcePermission('use', 'inventory'), async (req, res) => {
     res.json(await testMachineConnection(req.params.id))
   })
   router.post('/api/machines/test-candidate', requirePermission('inventory:manage'), async (req, res) => {
@@ -197,7 +198,7 @@ export function createRouter() {
   router.post('/api/subnet-scans/:id/import', requirePermission('inventory:manage'), (req, res) => {
     res.json(importSubnetScan(req.params.id, req.body.machines))
   })
-  router.post('/api/machines/:id/terminal/connect', requirePermission('runs:execute'), async (req, res) => {
+  router.post('/api/machines/:id/terminal/connect', requirePermission('runs:execute'), requireResourcePermission('use', 'inventory'), async (req, res) => {
     res.json(await connectTerminal(req.params.id, req.user.id))
   })
   router.post('/api/terminal/:sessionId/command', requirePermission('runs:execute'), async (req, res) => {
@@ -215,7 +216,7 @@ export function createRouter() {
     res.status(204).end()
   })
 
-  router.post('/api/credentials', requirePermission('vault:manage'), (req, res) => {
+  router.post('/api/credentials', requirePermission('vault:manage'), requireResourcePermission('edit', 'credential'), (req, res) => {
     res.json(
       saveCredential(
         {
@@ -231,7 +232,7 @@ export function createRouter() {
     res.json(listGroups())
   })
 
-  router.post('/api/groups', requirePermission('inventory:manage'), (req, res) => {
+  router.post('/api/groups', requirePermission('inventory:manage'), requireResourcePermission('edit', 'inventory'), (req, res) => {
     res.json(saveGroup(req.body))
   })
 
@@ -239,11 +240,11 @@ export function createRouter() {
     res.json(listSchedules())
   })
 
-  router.post('/api/schedules', requirePermission('schedules:manage'), (req, res) => {
+  router.post('/api/schedules', requirePermission('schedules:manage'), requireResourcePermission('edit', 'execution'), (req, res) => {
     res.json(saveSchedule(req.body, req.user.id))
   })
   router.get('/api/approvals', requirePermission('approvals:read'), (_req, res) => res.json(listApprovals()))
-  router.post('/api/approvals/:id/decision', requirePermission('approvals:decide'), async (req, res) => { const approval = decideApproval(req.params.id, req.body.status, req.user.id, req.body.notes); const executions = approval.status === 'approved' && approval.entity_type === 'schedule' ? await executeApprovedSchedule(approval.entity_id, req.user.id) : []; return res.json({ approval, executions }) })
+  router.post('/api/approvals/:id/decision', requirePermission('approvals:decide'), requireResourcePermission('approve', 'execution'), async (req, res) => { const approval = decideApproval(req.params.id, req.body.status, req.user.id, req.body.notes); const executions = approval.status === 'approved' && approval.entity_type === 'schedule' ? await executeApprovedSchedule(approval.entity_id, req.user.id) : []; return res.json({ approval, executions }) })
 
   router.get('/api/schedules/:id/webhook', (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' })
@@ -253,10 +254,12 @@ export function createRouter() {
   })
 
   router.post('/api/executions/run', requirePermission('runs:execute'), (req, res) => {
+    assertDispatchPermissions(req.user, req.body)
     const dispatch = enqueueDispatch(req.body, req.user.id, { idempotencyKey: req.get('Idempotency-Key') })
     res.status(dispatch.reused ? 200 : 202).json(dispatch)
   })
   router.post('/api/executions/run/stream', requirePermission('runs:execute'), (req, res) => {
+    assertDispatchPermissions(req.user, req.body)
     const dispatch = enqueueDispatch(req.body, req.user.id, { idempotencyKey: req.get('Idempotency-Key') })
     res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     res.flushHeaders()
@@ -300,6 +303,19 @@ export function createRouter() {
     res.json(saveUser(req.body))
   })
 
+  router.get('/api/access-grants', requirePermission('identity:manage'), (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage scoped grants' })
+    return res.json({ grants: listAccessGrants(), hierarchy: listScopeHierarchy() })
+  })
+  router.post('/api/access-grants', requirePermission('identity:manage'), (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage scoped grants' })
+    return res.json(saveAccessGrant(req.body, req.user.id))
+  })
+  router.delete('/api/access-grants/:id', requirePermission('identity:manage'), (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage scoped grants' })
+    return res.json({ deleted: deleteAccessGrant(req.params.id) })
+  })
+
   router.get('/api/teams', requirePermission('identity:manage'), (_req, res) => {
     res.json(listTeams())
   })
@@ -336,15 +352,17 @@ export function createRouter() {
     }
 
     if (req.params.key === 'vcenter') {
+      assertResourcePermission(req.user, 'admin', 'integration', 'vmware')
       res.json(saveVcenterSettings(req.body))
       return
     }
 
     if (req.params.key === 'azureArc') {
       if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Azure Arc' })
+      assertResourcePermission(req.user, 'admin', 'integration', 'azure-arc')
       return res.json(saveAzureArcSettings(req.body))
     }
-    if (req.params.key === 'proxmox') { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Proxmox' }); return res.json(saveProxmoxSettings(req.body)) }
+    if (req.params.key === 'proxmox') { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Proxmox' }); assertResourcePermission(req.user, 'admin', 'integration', 'proxmox'); return res.json(saveProxmoxSettings(req.body)) }
 
     res.json(saveSettings(req.params.key, req.body))
   })
