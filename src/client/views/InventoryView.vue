@@ -17,6 +17,8 @@ const store = useAppStore()
 const machineDialog = ref(false)
 const nodeDialog = ref(false)
 const groupDialog = ref(false)
+const groupHistoryDialog = ref(false)
+const groupHistory = ref([])
 const importDialog = ref(false)
 const azureArcImportDialog = ref(false)
 const subnetScanDialog = ref(false)
@@ -69,6 +71,7 @@ const groupDraft = reactive({
   machineIds: [],
   matchPattern: '*',
   sourceIds: [],
+  rule: { op: 'all', conditions: [{ field: 'name', operator: 'matches', value: '*' }], groups: [] },
 })
 
 const transportOptions = [
@@ -93,15 +96,13 @@ const integratedSources = computed(() => {
   })
   return [...sources.values()].sort((left, right) => left.title.localeCompare(right.title))
 })
-const dynamicMatches = computed(() => {
-  if (groupDraft.groupType !== 'dynamic' || !groupDraft.matchPattern.trim()) return []
-  const expression = groupDraft.matchPattern.trim().replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')
-  const matcher = new RegExp(`^${expression}$`, 'i')
-  return (store.catalog.machines || []).filter((machine) => {
-    const sourceId = `${machine.source_type}:${String(machine.source_ref || '').split(':')[0]}`
-    return groupDraft.sourceIds.includes(sourceId) && (matcher.test(machine.name || '') || matcher.test(machine.fqdn || ''))
-  })
-})
+const dynamicMatches = ref([])
+const ruleFields = [{ title: 'Inventory source', value: 'source' }, { title: 'Connector', value: 'connector' }, { title: 'Name', value: 'name' }, { title: 'FQDN', value: 'fqdn' }, { title: 'OS', value: 'os' }, { title: 'Transport', value: 'transport' }, { title: 'Tags', value: 'tags' }, { title: 'Status', value: 'status' }, { title: 'IP address', value: 'ip' }, { title: 'IP subnet', value: 'subnet' }, { title: 'Notes', value: 'notes' }, { title: 'Custom facts', value: 'facts' }]
+const ruleOperators = [{ title: 'equals', value: 'equals' }, { title: 'does not equal', value: 'not_equals' }, { title: 'contains', value: 'contains' }, { title: 'wildcard matches', value: 'matches' }, { title: 'is in subnet', value: 'in_subnet' }, { title: 'exists', value: 'exists' }]
+async function refreshRulePreview() { if (groupDraft.groupType !== 'dynamic') return; dynamicMatches.value = await store.previewGroupRule(groupDraft.rule) }
+function addRuleCondition(node = groupDraft.rule) { node.conditions.push({ field: 'name', operator: 'matches', value: '*' }); refreshRulePreview() }
+function addRuleGroup() { groupDraft.rule.groups.push({ op: 'any', conditions: [{ field: 'tags', operator: 'contains', value: '' }], groups: [] }); refreshRulePreview() }
+function removeRuleCondition(index) { groupDraft.rule.conditions.splice(index, 1); refreshRulePreview() }
 
 watch(() => machineDraft.transport, (transport) => {
   machineDraft.port = transport === 'psremoting' ? 5985 : transport === 'ssh' ? 22 : 0
@@ -181,7 +182,7 @@ async function saveNode() {
 }
 
 function resetGroup() {
-  Object.assign(groupDraft, { id: '', name: '', description: '', groupType: 'manual', machineIds: [], matchPattern: '*', sourceIds: [] })
+  Object.assign(groupDraft, { id: '', name: '', description: '', groupType: 'manual', machineIds: [], matchPattern: '*', sourceIds: [], rule: { op: 'all', conditions: [{ field: 'name', operator: 'matches', value: '*' }], groups: [] } })
 }
 
 function openGroup(group = null) {
@@ -194,15 +195,18 @@ function openGroup(group = null) {
     machineIds: [...(group.machineIds || [])],
     matchPattern: group.matchPattern || '*',
     sourceIds: (group.sourceFilters || []).map((source) => `${source.sourceType}:${source.connectorId}`),
+    rule: structuredClone(group.rule?.conditions?.length || group.rule?.groups?.length ? group.rule : { op: 'all', conditions: [{ field: 'name', operator: 'matches', value: group.matchPattern || '*' }], groups: [] }),
   })
   groupDialog.value = true
+  if (groupDraft.groupType === 'dynamic') refreshRulePreview()
 }
 
 async function saveGroup() {
   const sources = integratedSources.value.filter((source) => groupDraft.sourceIds.includes(source.id))
-  await store.saveGroup({ ...groupDraft, sourceFilters: sources.map(({ sourceType, connectorId }) => ({ sourceType, connectorId })) })
+  await store.saveGroup({ ...groupDraft, sourceFilters: sources.map(({ sourceType, connectorId }) => ({ sourceType, connectorId })), rule: groupDraft.rule })
   groupDialog.value = false
 }
+async function openGroupHistory(group) { groupHistory.value = await store.groupMembershipHistory(group.id); groupHistoryDialog.value = true }
 
 async function testNodeConnection() {
   nodeConnectionResult.value = null
@@ -299,6 +303,7 @@ onBeforeUnmount(closeTerminal)
 
 <template>
   <div class="page-grid">
+    <FloatingWindow v-model="groupHistoryDialog" title="Dynamic Group Membership Changes" :width="680" :start-x="310" :start-y="115"><div class="group-history"><article v-for="event in groupHistory" :key="event.id"><v-icon :color="event.change_type === 'added' ? 'success' : 'warning'" :icon="event.change_type === 'added' ? 'mdi-account-plus-outline' : 'mdi-account-remove-outline'"/><div><strong>{{ event.machine_name || event.machine_id }} · {{ event.change_type }}</strong><span>{{ new Date(event.occurred_at).toLocaleString() }}</span><small v-if="event.reason.length">Matched: {{ event.reason.map((rule) => `${rule.field} ${rule.operator}`).join(' · ') }}</small></div></article><p v-if="!groupHistory.length" class="muted">No membership changes have been recorded yet.</p><div class="window-actions"><v-btn variant="text" @click="groupHistoryDialog = false">Close</v-btn></div></div></FloatingWindow>
     <div class="toolbar-row">
       <div>
         <p class="section-eyebrow">Machine Inventory</p>
@@ -341,7 +346,7 @@ onBeforeUnmount(closeTerminal)
       <NeonPanel class="span-4" subtitle="Deployment Groups" title="Target Collections">
         <div class="group-list">
           <article v-for="group in store.catalog.groups" :key="group.id" class="group-card" @click="openGroup(group)">
-            <div class="group-card-heading"><strong>{{ group.name }}</strong><v-chip size="x-small" :color="group.groupType === 'dynamic' ? 'secondary' : undefined" variant="tonal">{{ group.groupType === 'dynamic' ? 'dynamic' : 'manual' }}</v-chip></div>
+            <div class="group-card-heading"><strong>{{ group.name }}</strong><div><v-btn v-if="group.groupType === 'dynamic'" size="x-small" variant="text" @click.stop="openGroupHistory(group)">Changes</v-btn><v-chip size="x-small" :color="group.groupType === 'dynamic' ? 'secondary' : undefined" variant="tonal">{{ group.groupType === 'dynamic' ? 'dynamic' : 'manual' }}</v-chip></div></div>
             <span class="muted">{{ group.groupType === 'dynamic' ? `${group.matchPattern} · ${group.sourceFilters?.length || 0} source${group.sourceFilters?.length === 1 ? '' : 's'}` : group.description }}</span>
             <div class="chip-line">
               <v-chip v-for="machineId in group.machineIds" :key="machineId" size="small" variant="tonal">
@@ -381,7 +386,7 @@ onBeforeUnmount(closeTerminal)
         <div class="group-editor-intro"><div><p class="section-eyebrow">Targeting Strategy</p><strong>{{ groupDraft.groupType === 'dynamic' ? 'Dynamic Inventory Rule' : 'Manual Membership' }}</strong></div><v-btn-toggle v-model="groupDraft.groupType" mandatory density="compact" color="secondary"><v-btn value="manual" prepend-icon="mdi-account-multiple-outline">Manual</v-btn><v-btn value="dynamic" prepend-icon="mdi-auto-fix">Dynamic</v-btn></v-btn-toggle></div>
         <div class="group-editor-fields"><v-text-field v-model="groupDraft.name" label="Collection name" density="compact"/><v-textarea v-model="groupDraft.description" label="Operator description" rows="2" density="compact"/></div>
         <template v-if="groupDraft.groupType === 'manual'"><v-select v-model="groupDraft.machineIds" :items="store.catalog.machines" item-title="name" item-value="id" label="Explicit nodes" density="compact" multiple chips/><p class="group-helper">Manual collections retain exactly the nodes selected here.</p></template>
-        <template v-else><section class="dynamic-rule"><div class="dynamic-rule-head"><div><p class="section-eyebrow">Match Rule</p><strong>Name or FQDN wildcard</strong></div><v-chip size="small" color="secondary" variant="tonal">{{ dynamicMatches.length }} live matches</v-chip></div><v-text-field v-model="groupDraft.matchPattern" label="Wildcard rule" hint="Examples: TST* for all test nodes, *-WEB, or app-??" persistent-hint density="compact" prepend-inner-icon="mdi-asterisk"/><v-select v-model="groupDraft.sourceIds" :items="integratedSources" item-title="title" item-value="id" label="Integrated sources to search" hint="Only nodes imported from these connectors are considered." persistent-hint density="compact" multiple chips><template #no-data><div class="source-empty">Import nodes from VMware, Azure Arc, or Proxmox first.</div></template></v-select><div class="match-preview"><span class="section-eyebrow">Live Inventory Preview</span><div v-if="dynamicMatches.length" class="chip-line"><v-chip v-for="machine in dynamicMatches" :key="machine.id" size="small" variant="outlined">{{ machine.name }}</v-chip></div><p v-else class="muted">No imported nodes currently match this rule. The collection will update whenever it is refreshed or used by a schedule.</p></div></section></template>
+        <template v-else><section class="dynamic-rule"><div class="dynamic-rule-head"><div><p class="section-eyebrow">Composable Rule Engine</p><strong>All, any, and not conditions with explainable matches</strong></div><v-chip size="small" color="secondary" variant="tonal">{{ dynamicMatches.length }} live matches</v-chip></div><v-select v-model="groupDraft.rule.op" :items="[{ title: 'All conditions must match', value: 'all' }, { title: 'Any condition may match', value: 'any' }, { title: 'Invert this rule (not)', value: 'not' }]" label="Root logic" density="compact" @update:model-value="refreshRulePreview"/><article v-for="(condition, index) in groupDraft.rule.conditions" :key="index" class="rule-condition"><v-select v-model="condition.field" :items="ruleFields" label="Field" density="compact" @update:model-value="refreshRulePreview"/><v-select v-model="condition.operator" :items="ruleOperators" label="Comparison" density="compact" @update:model-value="refreshRulePreview"/><v-text-field v-model="condition.value" label="Value" density="compact" :hint="condition.operator === 'in_subnet' ? 'Example: 10.20.0.0/16' : condition.operator === 'matches' ? 'Wildcards: TST*, *-WEB' : ''" persistent-hint @update:model-value="refreshRulePreview"/><v-btn icon="mdi-close" size="small" variant="text" @click="removeRuleCondition(index)"/></article><div class="rule-actions"><v-btn size="small" variant="text" prepend-icon="mdi-plus" @click="addRuleCondition()">Condition</v-btn><v-btn size="small" variant="text" prepend-icon="mdi-source-branch-plus" @click="addRuleGroup">Any Branch</v-btn><v-btn size="small" variant="text" prepend-icon="mdi-refresh" @click="refreshRulePreview">Refresh Preview</v-btn></div><article v-for="(branch, branchIndex) in groupDraft.rule.groups" :key="branchIndex" class="rule-branch"><v-select v-model="branch.op" :items="[{ title: 'All branch conditions', value: 'all' }, { title: 'Any branch condition', value: 'any' }, { title: 'Not branch conditions', value: 'not' }]" label="Branch logic" density="compact" @update:model-value="refreshRulePreview"/><div v-for="(condition, index) in branch.conditions" :key="index" class="rule-condition"><v-select v-model="condition.field" :items="ruleFields" label="Field" density="compact" @update:model-value="refreshRulePreview"/><v-select v-model="condition.operator" :items="ruleOperators" label="Comparison" density="compact" @update:model-value="refreshRulePreview"/><v-text-field v-model="condition.value" label="Value" density="compact" @update:model-value="refreshRulePreview"/><v-btn icon="mdi-close" size="small" variant="text" @click="branch.conditions.splice(index, 1); refreshRulePreview()"/></div><div class="rule-actions"><v-btn size="x-small" variant="text" @click="addRuleCondition(branch)">Add condition</v-btn><v-btn size="x-small" variant="text" color="error" @click="groupDraft.rule.groups.splice(branchIndex, 1); refreshRulePreview()">Remove branch</v-btn></div></article><div class="match-preview"><span class="section-eyebrow">Live Inventory Preview</span><div v-if="dynamicMatches.length" class="chip-line"><v-chip v-for="machine in dynamicMatches" :key="machine.id" size="small" variant="outlined" :title="machine.explanation.checks.filter((item) => item.passed).map((item) => `${item.field} ${item.operator}`).join(', ')">{{ machine.name }}</v-chip></div><p v-else class="muted">No nodes match this rule. Use preview to evaluate mapped source data and custom facts without saving.</p></div></section></template>
         <div class="window-actions"><v-btn variant="text" @click="groupDialog = false">Cancel</v-btn><v-btn class="glass-button" prepend-icon="mdi-content-save-outline" @click="saveGroup">{{ groupDraft.id ? 'Update Collection' : 'Create Collection' }}</v-btn></div>
       </div>
     </FloatingWindow>
@@ -446,6 +451,7 @@ onBeforeUnmount(closeTerminal)
 </template>
 
 <style scoped>
+.rule-condition { display:grid; grid-template-columns:1fr 1fr 1.25fr auto; gap:8px; align-items:start; padding:8px; border:1px solid rgba(40,211,255,.16); background:rgba(3,7,11,.28); }.rule-branch { display:grid; gap:8px; padding:10px; border:1px dashed rgba(190,77,255,.42); background:rgba(190,77,255,.035); }.rule-actions { display:flex; gap:6px; flex-wrap:wrap; }.group-history { display:grid; gap:8px; }.group-history article { display:grid; grid-template-columns:28px 1fr; gap:9px; padding:10px; border:1px solid var(--line); background:rgba(40,211,255,.035); }.group-history article div { display:grid; gap:2px; }.group-history span,.group-history small { color:var(--muted); font-size:.74rem; }
 .page-title {
   margin: 4px 0 0;
 }

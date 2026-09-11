@@ -421,6 +421,72 @@ function createTables() {
     );
 
     CREATE INDEX IF NOT EXISTS parameter_sets_script_idx ON parameter_sets(script_id, name);
+
+    CREATE TABLE IF NOT EXISTS inventory_sources (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      connector_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      owner_user_id TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      sync_enabled INTEGER NOT NULL DEFAULT 1,
+      sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
+      next_sync_at TEXT,
+      last_sync_at TEXT,
+      health_state TEXT NOT NULL DEFAULT 'unknown',
+      last_error TEXT,
+      field_mapping_json TEXT NOT NULL DEFAULT '{}',
+      stale_policy TEXT NOT NULL DEFAULT 'mark_stale',
+      stale_after_syncs INTEGER NOT NULL DEFAULT 1,
+      cursor_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(provider, connector_id),
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS inventory_reconciliations (
+      id TEXT PRIMARY KEY,
+      source_id TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      status TEXT NOT NULL,
+      discovered_count INTEGER NOT NULL DEFAULT 0,
+      created_count INTEGER NOT NULL DEFAULT 0,
+      updated_count INTEGER NOT NULL DEFAULT 0,
+      unchanged_count INTEGER NOT NULL DEFAULT 0,
+      stale_count INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      details_json TEXT NOT NULL DEFAULT '{}',
+      FOREIGN KEY (source_id) REFERENCES inventory_sources(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS inventory_reconciliations_source_idx ON inventory_reconciliations(source_id, started_at DESC);
+
+    CREATE TABLE IF NOT EXISTS inventory_source_errors (
+      id TEXT PRIMARY KEY,
+      source_id TEXT NOT NULL,
+      reconciliation_id TEXT,
+      message TEXT NOT NULL,
+      context_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (source_id) REFERENCES inventory_sources(id) ON DELETE CASCADE,
+      FOREIGN KEY (reconciliation_id) REFERENCES inventory_reconciliations(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS inventory_source_errors_source_idx ON inventory_source_errors(source_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS group_membership_events (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL,
+      machine_id TEXT NOT NULL,
+      change_type TEXT NOT NULL,
+      reason_json TEXT NOT NULL DEFAULT '[]',
+      occurred_at TEXT NOT NULL,
+      FOREIGN KEY (group_id) REFERENCES deployment_groups(id) ON DELETE CASCADE,
+      FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS group_membership_events_group_idx ON group_membership_events(group_id, occurred_at DESC);
   `)
 }
 
@@ -443,6 +509,9 @@ function ensureDynamicGroupSchema() {
   if (!columns.includes('match_pattern')) db.exec('ALTER TABLE deployment_groups ADD COLUMN match_pattern TEXT')
   if (!columns.includes('source_filters_json')) db.exec("ALTER TABLE deployment_groups ADD COLUMN source_filters_json TEXT NOT NULL DEFAULT '[]'")
   if (!columns.includes('last_synced_at')) db.exec('ALTER TABLE deployment_groups ADD COLUMN last_synced_at TEXT')
+  if (!columns.includes('rule_json')) db.exec("ALTER TABLE deployment_groups ADD COLUMN rule_json TEXT NOT NULL DEFAULT '{}' ")
+  const machineColumns = db.prepare('PRAGMA table_info(machines)').all().map((column) => column.name)
+  if (!machineColumns.includes('custom_facts_json')) db.exec("ALTER TABLE machines ADD COLUMN custom_facts_json TEXT NOT NULL DEFAULT '{}'")
 }
 
 function ensureScheduleWebhookSchema() {
@@ -475,6 +544,16 @@ function ensureScopedRbacSchema() {
   run("INSERT OR IGNORE INTO organizations (id, name, created_at, updated_at) VALUES ('org-default', 'Default Organization', ?, ?)", [timestamp, timestamp])
   run("INSERT OR IGNORE INTO projects (id, organization_id, name, created_at, updated_at) VALUES ('project-default', 'org-default', 'Default Project', ?, ?)", [timestamp, timestamp])
   run("INSERT OR IGNORE INTO environments (id, project_id, name, created_at, updated_at) VALUES ('env-default', 'project-default', 'Production', ?, ?)", [timestamp, timestamp])
+}
+
+function ensureInventorySourceSchema() {
+  const columns = db.prepare('PRAGMA table_info(machines)').all().map((column) => column.name)
+  if (!columns.includes('inventory_source_id')) db.exec('ALTER TABLE machines ADD COLUMN inventory_source_id TEXT')
+  if (!columns.includes('inventory_state')) db.exec("ALTER TABLE machines ADD COLUMN inventory_state TEXT NOT NULL DEFAULT 'active'")
+  if (!columns.includes('inventory_last_seen_at')) db.exec('ALTER TABLE machines ADD COLUMN inventory_last_seen_at TEXT')
+  if (!columns.includes('inventory_metadata_json')) db.exec("ALTER TABLE machines ADD COLUMN inventory_metadata_json TEXT NOT NULL DEFAULT '{}'")
+  if (!columns.includes('inventory_missing_syncs')) db.exec('ALTER TABLE machines ADD COLUMN inventory_missing_syncs INTEGER NOT NULL DEFAULT 0')
+  db.exec('CREATE INDEX IF NOT EXISTS machines_inventory_source_idx ON machines(inventory_source_id, inventory_state)')
 }
 
 function seedSettings() {
@@ -813,6 +892,7 @@ export function initializeDatabase() {
   ensureCredentialSecretSchema()
   ensureJobReliabilitySchema()
   ensureScopedRbacSchema()
+  ensureInventorySourceSchema()
   ensureScriptParameterSchema()
   ensureDynamicGroupSchema()
   seedSettings()

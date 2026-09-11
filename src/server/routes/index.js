@@ -9,7 +9,7 @@ import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
 import { buildTargetMachines, executeApprovedSchedule } from '../services/executionService.js'
 import { decideApproval, listApprovals } from '../services/approvalService.js'
-import { listGroups, saveGroup } from '../services/groupService.js'
+import { explainDynamicGroup, listGroupMembershipChanges, listGroups, previewDynamicGroup, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
 import { searchLogs } from '../services/logService.js'
 import { listMachines, saveCredential, saveMachine, testMachineCandidate, testMachineConnection, uploadAsset } from '../services/machineService.js'
@@ -29,6 +29,7 @@ import { deleteNotificationPolicy, listNotificationPolicies, saveNotificationPol
 import { downloadDispatchOutput, enqueueDispatch, getDispatch, getReliabilityStatus, listDeadLetters, listDispatchEvents, requeueDeadLetter, requestDispatchCancellation, subscribeDispatch, tailDispatchOutput } from '../services/jobQueueService.js'
 import { assertDispatchPermissions, assertResourcePermission, deleteAccessGrant, listAccessGrants, listScopeHierarchy, saveAccessGrant } from '../services/rbacService.js'
 import { listParameterSets, saveParameterSet } from '../services/parameterService.js'
+import { ensureManagedInventorySources, listInventorySourceErrors, listInventorySourceHistory, listInventorySources, syncInventorySource, updateInventorySource } from '../services/inventorySourceService.js'
 
 const upload = multer({
   dest: path.join(config.uploadsDir),
@@ -239,6 +240,16 @@ export function createRouter() {
     res.json(listGroups())
   })
 
+  router.post('/api/groups/preview', requirePermission('inventory:manage'), requireResourcePermission('edit', 'inventory'), (req, res) => {
+    res.json(previewDynamicGroup(req.body.rule))
+  })
+  router.get('/api/groups/:id/history', requirePermission('inventory:read'), (req, res) => {
+    res.json(listGroupMembershipChanges(req.params.id))
+  })
+  router.get('/api/groups/:id/machines/:machineId/explanation', requirePermission('inventory:read'), (req, res, next) => {
+    try { res.json(explainDynamicGroup(req.params.id, req.params.machineId)) } catch (error) { next(error) }
+  })
+
   router.post('/api/groups', requirePermission('inventory:manage'), requireResourcePermission('edit', 'inventory'), (req, res) => {
     res.json(saveGroup(req.body))
   })
@@ -335,6 +346,26 @@ export function createRouter() {
     res.json(getCatalog({ role: 'admin' }).settings)
   })
 
+  router.get('/api/inventory-sources', requirePermission('settings:manage'), (req, res) => {
+    assertResourcePermission(req.user, 'admin', 'integration', '*')
+    res.json(listInventorySources())
+  })
+  router.get('/api/inventory-sources/:id/history', requirePermission('settings:manage'), (req, res) => {
+    assertResourcePermission(req.user, 'admin', 'integration', '*')
+    res.json(listInventorySourceHistory(req.params.id))
+  })
+  router.get('/api/inventory-sources/:id/errors', requirePermission('settings:manage'), (req, res) => {
+    assertResourcePermission(req.user, 'admin', 'integration', '*')
+    res.json(listInventorySourceErrors(req.params.id))
+  })
+  router.post('/api/inventory-sources/:id', requirePermission('settings:manage'), (req, res) => {
+    assertResourcePermission(req.user, 'admin', 'integration', '*')
+    res.json(updateInventorySource(req.params.id, req.body))
+  })
+  router.post('/api/inventory-sources/:id/sync', async (req, res, next) => {
+    try { assertResourcePermission(req.user, 'admin', 'integration', '*'); res.json(await syncInventorySource(req.params.id)) } catch (error) { next(error) }
+  })
+
   router.post('/api/settings/:key', (req, res) => {
     if (req.params.key === 'runtime') {
       if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure execution reliability controls' })
@@ -366,16 +397,20 @@ export function createRouter() {
 
     if (req.params.key === 'vcenter') {
       assertResourcePermission(req.user, 'admin', 'integration', 'vmware')
-      res.json(saveVcenterSettings(req.body))
+      const saved = saveVcenterSettings(req.body)
+      ensureManagedInventorySources()
+      res.json(saved)
       return
     }
 
     if (req.params.key === 'azureArc') {
       if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Azure Arc' })
       assertResourcePermission(req.user, 'admin', 'integration', 'azure-arc')
-      return res.json(saveAzureArcSettings(req.body))
+      const saved = saveAzureArcSettings(req.body)
+      ensureManagedInventorySources()
+      return res.json(saved)
     }
-    if (req.params.key === 'proxmox') { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Proxmox' }); assertResourcePermission(req.user, 'admin', 'integration', 'proxmox'); return res.json(saveProxmoxSettings(req.body)) }
+    if (req.params.key === 'proxmox') { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure Proxmox' }); assertResourcePermission(req.user, 'admin', 'integration', 'proxmox'); const saved = saveProxmoxSettings(req.body); ensureManagedInventorySources(); return res.json(saved) }
 
     res.json(saveSettings(req.params.key, req.body))
   })

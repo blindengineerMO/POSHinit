@@ -1,114 +1,26 @@
 import { nanoid } from 'nanoid'
 import { all, get, nowIso, run, transaction } from '../db/client.js'
 
-function normalizeSources(value) {
-  return Array.isArray(value)
-    ? value.filter((source) => source?.sourceType && source?.connectorId)
-      .map((source) => ({ sourceType: String(source.sourceType), connectorId: String(source.connectorId) }))
-    : []
-}
+const fields = new Set(['source', 'connector', 'name', 'fqdn', 'os', 'transport', 'tags', 'status', 'ip', 'subnet', 'notes', 'facts'])
+const operators = new Set(['equals', 'not_equals', 'contains', 'matches', 'in_subnet', 'exists'])
+const parse = (value, fallback) => { try { return JSON.parse(value || '') } catch { return fallback } }
+const sources = (value) => Array.isArray(value) ? value.filter((item) => item?.sourceType && item?.connectorId).map((item) => ({ sourceType: String(item.sourceType), connectorId: String(item.connectorId) })) : []
+function wildcard(pattern) { return new RegExp(`^${String(pattern || '').replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')}$`, 'i') }
+function legacy(group) { const selected = sources(parse(group.source_filters_json, [])); return { op: 'all', conditions: [...(selected.length ? [{ field: 'connector', operator: 'equals', value: selected.map((item) => `${item.sourceType}:${item.connectorId}`) }] : []), { field: 'name', operator: 'matches', value: group.match_pattern || '*' }], groups: [] } }
+function normalize(rule, fallback) { if (!rule || typeof rule !== 'object') return fallback; const node = (value) => ({ op: ['all', 'any', 'not'].includes(value?.op) ? value.op : 'all', conditions: (value?.conditions || []).filter((item) => fields.has(item?.field) && operators.has(item?.operator)).map((item) => ({ field: item.field, operator: item.operator, value: item.value ?? '' })), groups: (value?.groups || []).slice(0, 20).map(node) }); return node(rule) }
+function mapGroup(group) { return { ...group, groupType: group.group_type || 'manual', matchPattern: group.match_pattern || '', sourceFilters: parse(group.source_filters_json, []), rule: normalize(parse(group.rule_json, null), legacy(group)), machineIds: parse(group.machine_ids_json, []).filter(Boolean) } }
+function context(machine) { const metadata = parse(machine.inventory_metadata_json, {}); return { source: machine.source_type || 'manual', connector: `${machine.source_type}:${String(machine.source_ref || '').split(':')[0]}`, name: machine.name || '', fqdn: machine.fqdn || '', os: machine.os_family || '', transport: machine.transport || '', tags: metadata.tags || {}, status: metadata.status || machine.last_test_status || '', ip: machine.ip_address || '', subnet: machine.ip_address || '', notes: machine.notes || '', facts: { ...metadata, ...parse(machine.custom_facts_json, {}) } } }
+function values(value) { return value && typeof value === 'object' ? Object.entries(value).flatMap(([key, item]) => [key, String(item)]) : [String(value ?? '')] }
+function inSubnet(ip, cidr) { const match = String(cidr || '').match(/^([0-9.]+)\/(\d{1,2})$/); if (!match || !/^\d+\.\d+\.\d+\.\d+$/.test(ip) || Number(match[2]) > 32) return false; const pack = (item) => item.split('.').reduce((total, octet) => (total << 8) + Number(octet), 0) >>> 0; const mask = Number(match[2]) ? (0xffffffff << (32 - Number(match[2]))) >>> 0 : 0; return (pack(ip) & mask) === (pack(match[1]) & mask) }
+function check(condition, current) { const expected = (Array.isArray(condition.value) ? condition.value : [condition.value]).map((item) => String(item ?? '')); const actual = values(current[condition.field]); const matches = actual.some((item) => expected.some((wanted) => condition.operator === 'equals' ? item.toLowerCase() === wanted.toLowerCase() : condition.operator === 'contains' ? item.toLowerCase().includes(wanted.toLowerCase()) : condition.operator === 'matches' ? wildcard(wanted).test(item) : condition.operator === 'in_subnet' ? inSubnet(item, wanted) : Boolean(item))); const passed = condition.operator === 'not_equals' ? actual.every((item) => expected.every((wanted) => item.toLowerCase() !== wanted.toLowerCase())) : condition.operator === 'exists' ? actual.some(Boolean) : matches; return { passed, field: condition.field, operator: condition.operator, expected, actual } }
+function evaluate(rule, current, path = 'root') { const checks = rule.conditions.map((condition, index) => ({ path: `${path}.conditions.${index}`, ...check(condition, current) })); const children = rule.groups.map((item, index) => evaluate(item, current, `${path}.groups.${index}`)); const state = [...checks.map((item) => item.passed), ...children.map((item) => item.matched)]; const matched = rule.op === 'not' ? !state.every(Boolean) : rule.op === 'any' ? state.some(Boolean) : state.every(Boolean); return { matched, op: rule.op, checks, children } }
+function allGroups() { return all(`SELECT g.id, g.name, g.description, g.group_type, g.match_pattern, g.source_filters_json, g.rule_json, g.last_synced_at, g.created_at, g.updated_at, COALESCE(json_group_array(dgm.machine_id), '[]') AS machine_ids_json FROM deployment_groups g LEFT JOIN deployment_group_machines dgm ON dgm.group_id = g.id GROUP BY g.id ORDER BY g.name ASC`).map(mapGroup) }
+function connectors(rule) { const result = []; const visit = (node) => { node.conditions.filter((item) => item.field === 'connector' && item.operator === 'equals').forEach((item) => (Array.isArray(item.value) ? item.value : [item.value]).forEach((value) => { const [sourceType, connectorId] = String(value).split(':'); if (sourceType && connectorId) result.push({ sourceType, connectorId }) })); node.groups.forEach(visit) }; visit(rule); return sources(result) }
 
-function wildcardMatcher(pattern) {
-  const escaped = String(pattern || '').trim()
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replaceAll('*', '.*')
-    .replaceAll('?', '.')
-  return new RegExp(`^${escaped}$`, 'i')
-}
-
-function mapGroup(group) {
-  return {
-    ...group,
-    groupType: group.group_type || 'manual',
-    matchPattern: group.match_pattern || '',
-    sourceFilters: JSON.parse(group.source_filters_json || '[]'),
-    machineIds: JSON.parse(group.machine_ids_json || '[]').filter(Boolean),
-  }
-}
-
-function fetchGroups() {
-  return all(
-    `SELECT g.id, g.name, g.description, g.group_type, g.match_pattern, g.source_filters_json, g.last_synced_at, g.created_at, g.updated_at,
-            COALESCE(json_group_array(dgm.machine_id), '[]') AS machine_ids_json
-     FROM deployment_groups g
-     LEFT JOIN deployment_group_machines dgm ON dgm.group_id = g.id
-     GROUP BY g.id
-     ORDER BY g.name ASC`,
-  ).map(mapGroup)
-}
-
-export function listGroups() {
-  syncDynamicGroups()
-  return fetchGroups()
-}
-
-export function syncDynamicGroups() {
-  const dynamicGroups = all("SELECT id FROM deployment_groups WHERE group_type = 'dynamic'")
-  return dynamicGroups.map((group) => syncDynamicGroup(group.id))
-}
-
-export function syncDynamicGroup(groupId) {
-  const group = get('SELECT * FROM deployment_groups WHERE id = ?', [groupId])
-  if (!group || group.group_type !== 'dynamic') return { groupId, matched: 0, skipped: true }
-  const sources = normalizeSources(JSON.parse(group.source_filters_json || '[]'))
-  const matcher = wildcardMatcher(group.match_pattern)
-  const machines = all('SELECT id, name, fqdn, source_type, source_ref FROM machines WHERE source_type <> ?', ['manual'])
-  const machineIds = machines
-    .filter((machine) => {
-      const connectorId = String(machine.source_ref || '').split(':')[0]
-      const sourceMatches = sources.some((source) => source.sourceType === machine.source_type && source.connectorId === connectorId)
-      return sourceMatches && (matcher.test(machine.name || '') || matcher.test(machine.fqdn || ''))
-    })
-    .map((machine) => machine.id)
-
-  transaction(() => {
-    run('DELETE FROM deployment_group_machines WHERE group_id = ?', [groupId])
-    machineIds.forEach((machineId) => run('INSERT INTO deployment_group_machines (group_id, machine_id) VALUES (?, ?)', [groupId, machineId]))
-    const timestamp = nowIso()
-    run('UPDATE deployment_groups SET last_synced_at = ?, updated_at = ? WHERE id = ?', [timestamp, timestamp, groupId])
-  })
-  return { groupId, matched: machineIds.length, skipped: false }
-}
-
-export function saveGroup(payload) {
-  const groupId = payload.id || nanoid()
-  const timestamp = nowIso()
-  const existing = payload.id ? get('SELECT created_at FROM deployment_groups WHERE id = ?', [payload.id]) : null
-  const groupType = payload.groupType === 'dynamic' ? 'dynamic' : 'manual'
-  const matchPattern = String(payload.matchPattern || '').trim()
-  const sourceFilters = normalizeSources(payload.sourceFilters)
-  if (groupType === 'dynamic' && !matchPattern) throw new Error('Dynamic groups require a name wildcard rule')
-  if (groupType === 'dynamic' && !sourceFilters.length) throw new Error('Select at least one integrated source for a dynamic group')
-
-  transaction(() => {
-    run(
-      `INSERT INTO deployment_groups (id, name, description, group_type, match_pattern, source_filters_json, last_synced_at, created_at, updated_at)
-       VALUES (@id, @name, @description, @groupType, @matchPattern, @sourceFilters, NULL, @createdAt, @updatedAt)
-       ON CONFLICT(id) DO UPDATE SET
-         name = excluded.name,
-         description = excluded.description,
-         group_type = excluded.group_type,
-         match_pattern = excluded.match_pattern,
-         source_filters_json = excluded.source_filters_json,
-         updated_at = excluded.updated_at`,
-      {
-        id: groupId,
-        name: payload.name,
-        description: payload.description || '',
-        groupType,
-        matchPattern: groupType === 'dynamic' ? matchPattern : null,
-        sourceFilters: JSON.stringify(groupType === 'dynamic' ? sourceFilters : []),
-        createdAt: existing?.created_at || timestamp,
-        updatedAt: timestamp,
-      },
-    )
-
-    run('DELETE FROM deployment_group_machines WHERE group_id = ?', [groupId])
-    if (groupType === 'manual') {
-      ;(payload.machineIds || []).forEach((machineId) => run('INSERT INTO deployment_group_machines (group_id, machine_id) VALUES (?, ?)', [groupId, machineId]))
-    }
-  })
-
-  if (groupType === 'dynamic') syncDynamicGroup(groupId)
-  return fetchGroups().find((group) => group.id === groupId)
-}
+export function previewDynamicGroup(rule) { const normalized = normalize(rule, { op: 'all', conditions: [], groups: [] }); return all('SELECT * FROM machines').map((machine) => ({ machine, explanation: evaluate(normalized, context(machine)) })).filter((item) => item.explanation.matched).map(({ machine, explanation }) => ({ id: machine.id, name: machine.name, fqdn: machine.fqdn, explanation })) }
+export function explainDynamicGroup(groupId, machineId) { const group = get('SELECT * FROM deployment_groups WHERE id = ?', [groupId]); const machine = get('SELECT * FROM machines WHERE id = ?', [machineId]); if (!group || !machine) throw new Error('Group or machine was not found'); return { groupId, machineId, explanation: evaluate(mapGroup({ ...group, machine_ids_json: '[]' }).rule, context(machine)) } }
+export function listGroupMembershipChanges(groupId) { return all('SELECT e.*, m.name AS machine_name FROM group_membership_events e LEFT JOIN machines m ON m.id = e.machine_id WHERE e.group_id = ? ORDER BY e.occurred_at DESC LIMIT 100', [groupId]).map((item) => ({ ...item, reason: parse(item.reason_json, []) })) }
+export function syncDynamicGroup(groupId) { const group = get('SELECT * FROM deployment_groups WHERE id = ?', [groupId]); if (!group || group.group_type !== 'dynamic') return { groupId, matched: 0, skipped: true }; const matches = previewDynamicGroup(mapGroup({ ...group, machine_ids_json: '[]' }).rule); const next = new Map(matches.map((item) => [item.id, item.explanation])); const prior = new Set(all('SELECT machine_id FROM deployment_group_machines WHERE group_id = ?', [groupId]).map((item) => item.machine_id)); const timestamp = nowIso(); transaction(() => { run('DELETE FROM deployment_group_machines WHERE group_id = ?', [groupId]); next.forEach((_item, machineId) => run('INSERT INTO deployment_group_machines (group_id, machine_id) VALUES (?, ?)', [groupId, machineId])); next.forEach((explanation, machineId) => { if (!prior.has(machineId)) run('INSERT INTO group_membership_events (id, group_id, machine_id, change_type, reason_json, occurred_at) VALUES (?, ?, ?, ?, ?, ?)', [nanoid(), groupId, machineId, 'added', JSON.stringify(explanation.checks.filter((item) => item.passed)), timestamp]) }); prior.forEach((machineId) => { if (!next.has(machineId)) run('INSERT INTO group_membership_events (id, group_id, machine_id, change_type, reason_json, occurred_at) VALUES (?, ?, ?, ?, ?, ?)', [nanoid(), groupId, machineId, 'removed', '[]', timestamp]) }); run('UPDATE deployment_groups SET last_synced_at = ?, updated_at = ? WHERE id = ?', [timestamp, timestamp, groupId]) }); return { groupId, matched: next.size, added: [...next].filter(([id]) => !prior.has(id)).length, removed: [...prior].filter((id) => !next.has(id)).length } }
+export function syncDynamicGroups() { return all("SELECT id FROM deployment_groups WHERE group_type = 'dynamic'").map((item) => syncDynamicGroup(item.id)) }
+export function listGroups() { syncDynamicGroups(); return allGroups() }
+export function saveGroup(payload) { const id = payload.id || nanoid(); const timestamp = nowIso(); const existing = payload.id ? get('SELECT * FROM deployment_groups WHERE id = ?', [payload.id]) : null; const groupType = payload.groupType === 'dynamic' ? 'dynamic' : 'manual'; const fallback = legacy({ match_pattern: payload.matchPattern || '*', source_filters_json: JSON.stringify(sources(payload.sourceFilters)) }); const rule = normalize(payload.rule, fallback); if (groupType === 'dynamic' && !rule.conditions.length && !rule.groups.length) throw new Error('Dynamic groups require a condition'); transaction(() => { run(`INSERT INTO deployment_groups (id, name, description, group_type, match_pattern, source_filters_json, rule_json, last_synced_at, created_at, updated_at) VALUES (@id, @name, @description, @groupType, @matchPattern, @sourceFilters, @ruleJson, NULL, @createdAt, @updatedAt) ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, group_type=excluded.group_type, match_pattern=excluded.match_pattern, source_filters_json=excluded.source_filters_json, rule_json=excluded.rule_json, updated_at=excluded.updated_at`, { id, name: payload.name, description: payload.description || '', groupType, matchPattern: groupType === 'dynamic' ? payload.matchPattern || '*' : null, sourceFilters: JSON.stringify(groupType === 'dynamic' ? connectors(rule) : []), ruleJson: JSON.stringify(groupType === 'dynamic' ? rule : {}), createdAt: existing?.created_at || timestamp, updatedAt: timestamp }); run('DELETE FROM deployment_group_machines WHERE group_id = ?', [id]); if (groupType === 'manual') (payload.machineIds || []).forEach((machineId) => run('INSERT INTO deployment_group_machines (group_id, machine_id) VALUES (?, ?)', [id, machineId])) }); if (groupType === 'dynamic') syncDynamicGroup(id); return allGroups().find((group) => group.id === id) }

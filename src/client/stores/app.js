@@ -172,6 +172,9 @@ export const useAppStore = defineStore('app', {
       await this.refreshDashboard()
       return saved
     },
+    async previewGroupRule(rule) { return this.api('/api/groups/preview', { method: 'POST', body: JSON.stringify({ rule }) }) },
+    async groupMembershipHistory(id) { return this.api(`/api/groups/${id}/history`) },
+    async explainGroupMachine(id, machineId) { return this.api(`/api/groups/${id}/machines/${machineId}/explanation`) },
     async listApprovals() { return this.api('/api/approvals') },
     async decideApproval(id, status, notes = '') { const result = await this.api(`/api/approvals/${id}/decision`, { method: 'POST', body: JSON.stringify({ status, notes }) }); await this.bootstrap(); return result },
     async getScheduleWebhook(id) {
@@ -304,6 +307,11 @@ export const useAppStore = defineStore('app', {
       this.catalog.settings[key] = result
       return result
     },
+    async listInventorySources() { return this.api('/api/inventory-sources') },
+    async updateInventorySource(id, source) { return this.api(`/api/inventory-sources/${id}`, { method: 'POST', body: JSON.stringify(source) }) },
+    async syncInventorySource(id) { return this.api(`/api/inventory-sources/${id}/sync`, { method: 'POST' }) },
+    async inventorySourceHistory(id) { return this.api(`/api/inventory-sources/${id}/history`) },
+    async inventorySourceErrors(id) { return this.api(`/api/inventory-sources/${id}/errors`) },
     async getReliabilityStatus() { return this.api('/api/reliability/status') },
     async listDeadLetters() { return this.api('/api/reliability/dead-letters') },
     async requeueDeadLetter(id) { return this.api(`/api/reliability/dead-letters/${id}/requeue`, { method: 'POST' }) },

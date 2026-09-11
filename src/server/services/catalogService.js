@@ -34,13 +34,13 @@ export function getCatalog(user = {}) {
     teamIds: JSON.parse(credential.team_ids_json || '[]'),
   }))
   const machines = all(
-    `SELECT id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id, source_type,
+    `SELECT id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id, source_type, custom_facts_json,
             source_ref, last_tested_at, last_test_status, last_test_output, created_at, updated_at
      FROM machines
      ORDER BY name ASC`,
   )
   const groups = all(
-    `SELECT g.id, g.name, g.description, g.group_type, g.match_pattern, g.source_filters_json, g.last_synced_at, g.created_at, g.updated_at,
+    `SELECT g.id, g.name, g.description, g.group_type, g.match_pattern, g.source_filters_json, g.rule_json, g.last_synced_at, g.created_at, g.updated_at,
             COALESCE(json_group_array(dgm.machine_id), '[]') AS machine_ids_json
      FROM deployment_groups g
      LEFT JOIN deployment_group_machines dgm ON dgm.group_id = g.id
@@ -51,6 +51,7 @@ export function getCatalog(user = {}) {
     groupType: group.group_type || 'manual',
     matchPattern: group.match_pattern || '',
     sourceFilters: JSON.parse(group.source_filters_json || '[]'),
+    rule: JSON.parse(group.rule_json || '{}'),
     machineIds: JSON.parse(group.machine_ids_json).filter(Boolean),
   }))
   const schedules = all(

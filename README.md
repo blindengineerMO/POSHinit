@@ -22,6 +22,8 @@ This repository now contains a runnable greenfield foundation with:
 - VMware connector registry for vCenter REST and standalone ESXi SOAP inventory import
 - Azure Arc connector registry for subscription-scoped Arc-enabled server inventory import
 - Proxmox VE connector registry for cluster-wide and node-scoped QEMU/LXC inventory import
+- Managed inventory sources for VMware, Azure Arc, and Proxmox with scheduled incremental reconciliation, health state, ownership, mapping, lifecycle policy, and diagnostics
+- Composable dynamic host-group rules with explainable previews and durable membership-change history
 - SMTP and HTTP(S) webhook delivery for completed job alerts
 - Notification policies for routed system, script, and job events
 - xterm.js-powered node CLI and generated RDP connection files
@@ -237,6 +239,23 @@ Select **Node Inventory > Scan Subnet** to open the floating subnet-discovery wi
 - Test PS Remoting or SSH with the selected credential.
 
 The live scan stage shows ping progress, discovered addresses, DNS names, and connection-test outcomes. The final table includes only machines that passed the connection test, allows selecting Windows or Linux per node, and registers those selected rows only after **Complete Import**. The scan does not retain unresponsive or failed targets.
+
+### Dynamic Host Group Rules
+
+Dynamic collections are configured from **Node Inventory > Target Collections** in a floating rule editor. Rules compose `all`, `any`, and `not` logic with nested branches and support source, connector, name, FQDN, operating system, transport, source tags/status, IP address or CIDR subnet, notes, and custom facts.
+
+- The live preview is evaluated by the server with the same rule engine used by schedules and executions. Hover a matched node to see the successful condition explanations.
+- The **Changes** action on a dynamic collection opens durable membership history, including additions, removals, timestamps, and the matched conditions that admitted a node.
+- Existing wildcard/source-filter groups continue to work and are automatically treated as an equivalent rule tree when read or synchronized.
+
+### Managed Inventory Sources
+
+Every configured VMware, Azure Arc, and Proxmox connector is automatically represented as a managed inventory source. Open **System Settings > Inventory Sources > Manage Sources** to configure the source owner, enable or pause its schedule, choose the interval, map provider fields to POSHinit node fields, and decide how upstream records that disappear should be handled.
+
+- Synchronizations run incrementally: discovered nodes are compared with their existing source record, and unchanged fields are not rewritten.
+- Each reconciliation records discovered, created, changed, unchanged, and stale counts. Source health becomes `healthy` on success or `error` with a source-specific diagnostic when a provider request fails.
+- Stale-node policy is intentionally non-destructive: retain the record as active, mark it `stale`, or mark it `archived`. POSHinit never deletes an inventory node merely because it was absent from one source response.
+- Source schedules are checked by the API process every minute by default. Set `INVENTORY_SYNC_POLL_MS` to tune the worker poll cadence; each source controls its own sync interval in minutes.
 
 ### Azure Arc Inventory
 

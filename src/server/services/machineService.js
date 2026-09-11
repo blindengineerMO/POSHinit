@@ -9,7 +9,7 @@ const supportedTransports = new Set(['local', 'ssh', 'psremoting'])
 
 export function listMachines() {
   return all(
-    `SELECT id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id, source_type,
+    `SELECT id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id, source_type, custom_facts_json,
             source_ref, last_tested_at, last_test_status, last_test_output, created_at, updated_at
      FROM machines
      ORDER BY name ASC`,
@@ -35,10 +35,10 @@ export function saveMachine(payload) {
   run(
     `INSERT INTO machines (
        id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id,
-       source_type, source_ref, created_at, updated_at
+       source_type, source_ref, custom_facts_json, created_at, updated_at
      ) VALUES (
        @id, @name, @fqdn, @ipAddress, @notes, @osFamily, @transport, @port, @credentialId,
-       @sourceType, @sourceRef, @createdAt, @updatedAt
+       @sourceType, @sourceRef, @customFactsJson, @createdAt, @updatedAt
      )
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
@@ -51,6 +51,7 @@ export function saveMachine(payload) {
        credential_id = excluded.credential_id,
        source_type = excluded.source_type,
        source_ref = excluded.source_ref,
+       custom_facts_json = excluded.custom_facts_json,
        updated_at = excluded.updated_at`,
     {
       id: machineId,
@@ -64,6 +65,7 @@ export function saveMachine(payload) {
       credentialId: payload.credentialId || null,
       sourceType: payload.sourceType || 'manual',
       sourceRef: payload.sourceRef || '',
+      customFactsJson: JSON.stringify(payload.customFacts || {}),
       createdAt: existing?.created_at || timestamp,
       updatedAt: timestamp,
     },
