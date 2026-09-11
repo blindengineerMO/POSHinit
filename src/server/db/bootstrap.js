@@ -487,6 +487,32 @@ function createTables() {
       FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS group_membership_events_group_idx ON group_membership_events(group_id, occurred_at DESC);
+
+    CREATE TABLE IF NOT EXISTS cmdb_enrichment_sources (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      match_field TEXT NOT NULL DEFAULT 'fqdn',
+      config_json TEXT NOT NULL DEFAULT '{}',
+      mapping_json TEXT NOT NULL DEFAULT '{}',
+      last_sync_at TEXT,
+      health_state TEXT NOT NULL DEFAULT 'unknown',
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS cmdb_enrichment_runs (
+      id TEXT PRIMARY KEY,
+      source_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      records_read INTEGER NOT NULL DEFAULT 0,
+      nodes_enriched INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      FOREIGN KEY (source_id) REFERENCES cmdb_enrichment_sources(id) ON DELETE CASCADE
+    );
   `)
 }
 
@@ -512,6 +538,12 @@ function ensureDynamicGroupSchema() {
   if (!columns.includes('rule_json')) db.exec("ALTER TABLE deployment_groups ADD COLUMN rule_json TEXT NOT NULL DEFAULT '{}' ")
   const machineColumns = db.prepare('PRAGMA table_info(machines)').all().map((column) => column.name)
   if (!machineColumns.includes('custom_facts_json')) db.exec("ALTER TABLE machines ADD COLUMN custom_facts_json TEXT NOT NULL DEFAULT '{}'")
+  if (!machineColumns.includes('host_facts_json')) db.exec("ALTER TABLE machines ADD COLUMN host_facts_json TEXT NOT NULL DEFAULT '{}'")
+  if (!machineColumns.includes('owner_user_id')) db.exec('ALTER TABLE machines ADD COLUMN owner_user_id TEXT')
+  if (!machineColumns.includes('owner_team_id')) db.exec('ALTER TABLE machines ADD COLUMN owner_team_id TEXT')
+  if (!machineColumns.includes('criticality')) db.exec("ALTER TABLE machines ADD COLUMN criticality TEXT NOT NULL DEFAULT 'standard'")
+  if (!machineColumns.includes('maintenance_window_json')) db.exec("ALTER TABLE machines ADD COLUMN maintenance_window_json TEXT NOT NULL DEFAULT '{}'")
+  if (!machineColumns.includes('business_service')) db.exec('ALTER TABLE machines ADD COLUMN business_service TEXT')
 }
 
 function ensureScheduleWebhookSchema() {
@@ -544,6 +576,20 @@ function ensureScopedRbacSchema() {
   run("INSERT OR IGNORE INTO organizations (id, name, created_at, updated_at) VALUES ('org-default', 'Default Organization', ?, ?)", [timestamp, timestamp])
   run("INSERT OR IGNORE INTO projects (id, organization_id, name, created_at, updated_at) VALUES ('project-default', 'org-default', 'Default Project', ?, ?)", [timestamp, timestamp])
   run("INSERT OR IGNORE INTO environments (id, project_id, name, created_at, updated_at) VALUES ('env-default', 'project-default', 'Production', ?, ?)", [timestamp, timestamp])
+}
+
+function ensureProjectEnvironmentSchema() {
+  const projectColumns = db.prepare('PRAGMA table_info(projects)').all().map((column) => column.name)
+  if (!projectColumns.includes('description')) db.exec('ALTER TABLE projects ADD COLUMN description TEXT')
+  const environmentColumns = db.prepare('PRAGMA table_info(environments)').all().map((column) => column.name)
+  if (!environmentColumns.includes('environment_type')) db.exec("ALTER TABLE environments ADD COLUMN environment_type TEXT NOT NULL DEFAULT 'custom'")
+  if (!environmentColumns.includes('is_protected')) db.exec('ALTER TABLE environments ADD COLUMN is_protected INTEGER NOT NULL DEFAULT 0')
+  if (!environmentColumns.includes('require_approval')) db.exec('ALTER TABLE environments ADD COLUMN require_approval INTEGER NOT NULL DEFAULT 0')
+  ;['notification_policies', 'cmdb_enrichment_sources', 'inventory_sources'].forEach((table) => {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name)
+    if (!columns.includes('project_id')) db.exec(`ALTER TABLE ${table} ADD COLUMN project_id TEXT NOT NULL DEFAULT 'project-default'`)
+    if (!columns.includes('environment_id')) db.exec(`ALTER TABLE ${table} ADD COLUMN environment_id TEXT NOT NULL DEFAULT 'env-default'`)
+  })
 }
 
 function ensureInventorySourceSchema() {
@@ -892,6 +938,7 @@ export function initializeDatabase() {
   ensureCredentialSecretSchema()
   ensureJobReliabilitySchema()
   ensureScopedRbacSchema()
+  ensureProjectEnvironmentSchema()
   ensureInventorySourceSchema()
   ensureScriptParameterSchema()
   ensureDynamicGroupSchema()

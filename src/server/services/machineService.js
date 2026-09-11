@@ -9,7 +9,7 @@ const supportedTransports = new Set(['local', 'ssh', 'psremoting'])
 
 export function listMachines() {
   return all(
-    `SELECT id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id, source_type, custom_facts_json,
+    `SELECT id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id, source_type, project_id, environment_id, custom_facts_json, host_facts_json, owner_user_id, owner_team_id, criticality, maintenance_window_json, business_service,
             source_ref, last_tested_at, last_test_status, last_test_output, created_at, updated_at
      FROM machines
      ORDER BY name ASC`,
@@ -35,10 +35,10 @@ export function saveMachine(payload) {
   run(
     `INSERT INTO machines (
        id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id,
-       source_type, source_ref, custom_facts_json, created_at, updated_at
+       source_type, source_ref, project_id, environment_id, custom_facts_json, host_facts_json, owner_user_id, owner_team_id, criticality, maintenance_window_json, business_service, created_at, updated_at
      ) VALUES (
        @id, @name, @fqdn, @ipAddress, @notes, @osFamily, @transport, @port, @credentialId,
-       @sourceType, @sourceRef, @customFactsJson, @createdAt, @updatedAt
+       @sourceType, @sourceRef, @projectId, @environmentId, @customFactsJson, @hostFactsJson, @ownerUserId, @ownerTeamId, @criticality, @maintenanceWindowJson, @businessService, @createdAt, @updatedAt
      )
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
@@ -51,7 +51,15 @@ export function saveMachine(payload) {
        credential_id = excluded.credential_id,
        source_type = excluded.source_type,
        source_ref = excluded.source_ref,
+       project_id = excluded.project_id,
+       environment_id = excluded.environment_id,
        custom_facts_json = excluded.custom_facts_json,
+       host_facts_json = excluded.host_facts_json,
+       owner_user_id = excluded.owner_user_id,
+       owner_team_id = excluded.owner_team_id,
+       criticality = excluded.criticality,
+       maintenance_window_json = excluded.maintenance_window_json,
+       business_service = excluded.business_service,
        updated_at = excluded.updated_at`,
     {
       id: machineId,
@@ -65,7 +73,14 @@ export function saveMachine(payload) {
       credentialId: payload.credentialId || null,
       sourceType: payload.sourceType || 'manual',
       sourceRef: payload.sourceRef || '',
+      projectId: payload.projectId || 'project-default', environmentId: payload.environmentId || 'env-default',
       customFactsJson: JSON.stringify(payload.customFacts || {}),
+      hostFactsJson: JSON.stringify(payload.hostFacts || {}),
+      ownerUserId: payload.ownerUserId || null,
+      ownerTeamId: payload.ownerTeamId || null,
+      criticality: ['low', 'standard', 'high', 'critical'].includes(payload.criticality) ? payload.criticality : 'standard',
+      maintenanceWindowJson: JSON.stringify(payload.maintenanceWindow || {}),
+      businessService: payload.businessService || '',
       createdAt: existing?.created_at || timestamp,
       updatedAt: timestamp,
     },
@@ -237,10 +252,10 @@ export function saveCredential(payload, ownerUserId) {
 
   run(
     `INSERT INTO credentials (
-       id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_type, secret_encrypted,
+       id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_type, secret_encrypted, project_id, environment_id,
        notes, created_at, updated_at
      ) VALUES (
-       @id, @name, @scope, @ownerUserId, @teamIdsJson, @username, @domainName, @protocol, @secretType, @secretEncrypted,
+       @id, @name, @scope, @ownerUserId, @teamIdsJson, @username, @domainName, @protocol, @secretType, @secretEncrypted, @projectId, @environmentId,
        @notes, @createdAt, @updatedAt
      )
      ON CONFLICT(id) DO UPDATE SET
@@ -253,6 +268,8 @@ export function saveCredential(payload, ownerUserId) {
        protocol = excluded.protocol,
        secret_type = excluded.secret_type,
        secret_encrypted = excluded.secret_encrypted,
+       project_id = excluded.project_id,
+       environment_id = excluded.environment_id,
        notes = excluded.notes,
        updated_at = excluded.updated_at`,
     {
@@ -266,6 +283,7 @@ export function saveCredential(payload, ownerUserId) {
       protocol: secretType === 'token' ? 'token' : payload.protocol || 'ssh',
       secretType,
       secretEncrypted: payload.secretEncrypted,
+      projectId: payload.projectId || 'project-default', environmentId: payload.environmentId || 'env-default',
       notes: payload.notes || '',
       createdAt: existing?.created_at || timestamp,
       updatedAt: timestamp,
@@ -273,7 +291,7 @@ export function saveCredential(payload, ownerUserId) {
   )
 
   return get(
-    `SELECT id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_type,
+    `SELECT id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_type, project_id, environment_id,
             notes, created_at, updated_at
      FROM credentials
      WHERE id = ?`,

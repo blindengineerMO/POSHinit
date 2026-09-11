@@ -98,7 +98,7 @@ export async function syncInventorySource(sourceId) {
       seen.add(machine.sourceRef)
       const current = get('SELECT * FROM machines WHERE source_type = ? AND source_ref = ?', [machine.sourceType, machine.sourceRef])
       const changed = !current || ['name', 'fqdn', 'ip_address', 'notes', 'os_family'].some((key) => String(current?.[key] || '') !== String({ name: machine.name, fqdn: machine.fqdn, ip_address: machine.ipAddress, notes: machine.notes, os_family: machine.osFamily }[key] || ''))
-      const saved = saveMachine({ id: current?.id, ...machine, transport: current?.transport || 'psremoting', port: current?.port || 5985, credentialId: current?.credential_id || null })
+      const saved = saveMachine({ id: current?.id, ...machine, transport: current?.transport || 'psremoting', port: current?.port || 5985, credentialId: current?.credential_id || null, customFacts: parseJson(current?.custom_facts_json, {}), hostFacts: parseJson(current?.host_facts_json, {}), ownerUserId: current?.owner_user_id, ownerTeamId: current?.owner_team_id, criticality: current?.criticality, maintenanceWindow: parseJson(current?.maintenance_window_json, {}), businessService: current?.business_service })
       run("UPDATE machines SET inventory_source_id = ?, inventory_state = 'active', inventory_last_seen_at = ?, inventory_metadata_json = ?, inventory_missing_syncs = 0 WHERE id = ?", [source.id, nowIso(), JSON.stringify(item), saved.id])
       if (!current) created += 1; else if (changed) updated += 1; else unchanged += 1
     }

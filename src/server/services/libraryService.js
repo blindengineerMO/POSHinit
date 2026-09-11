@@ -29,7 +29,7 @@ function assetEntryPath(entry) {
 
 export function listLibrary() {
   return all(
-    `SELECT id, parent_id, type, name, scope, owner_user_id, content, asset_path, language,
+    `SELECT id, parent_id, type, name, scope, owner_user_id, project_id, environment_id, content, asset_path, language,
             is_published, notes, parameter_schema_json, created_at, updated_at
      FROM library_entries
      ORDER BY scope, type DESC, name ASC`,
@@ -46,10 +46,10 @@ export function saveLibraryEntry(payload, userId) {
 
   run(
     `INSERT INTO library_entries (
-       id, parent_id, type, name, scope, owner_user_id, content, asset_path, language,
+       id, parent_id, type, name, scope, owner_user_id, project_id, environment_id, content, asset_path, language,
        is_published, notes, parameter_schema_json, created_at, updated_at
      ) VALUES (
-       @id, @parentId, @type, @name, @scope, @ownerUserId, @content, @assetPath, @language,
+       @id, @parentId, @type, @name, @scope, @ownerUserId, @projectId, @environmentId, @content, @assetPath, @language,
        @isPublished, @notes, @parameterSchemaJson, @createdAt, @updatedAt
      )
      ON CONFLICT(id) DO UPDATE SET
@@ -57,6 +57,8 @@ export function saveLibraryEntry(payload, userId) {
        type = excluded.type,
        name = excluded.name,
        scope = excluded.scope,
+       project_id = excluded.project_id,
+       environment_id = excluded.environment_id,
        content = excluded.content,
        asset_path = excluded.asset_path,
        language = excluded.language,
@@ -71,6 +73,7 @@ export function saveLibraryEntry(payload, userId) {
       name: payload.name,
       scope: payload.scope,
       ownerUserId: payload.ownerUserId || userId || null,
+      projectId: payload.projectId || 'project-default', environmentId: payload.environmentId || 'env-default',
       content: payload.content || '',
       assetPath: payload.assetPath || '',
       language: payload.language || 'powershell',

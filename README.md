@@ -24,6 +24,8 @@ This repository now contains a runnable greenfield foundation with:
 - Proxmox VE connector registry for cluster-wide and node-scoped QEMU/LXC inventory import
 - Managed inventory sources for VMware, Azure Arc, and Proxmox with scheduled incremental reconciliation, health state, ownership, mapping, lifecycle policy, and diagnostics
 - Composable dynamic host-group rules with explainable previews and durable membership-change history
+- Node context, normalized facts, custom metadata, ownership, criticality, maintenance windows, business-service mapping, and CMDB enrichment sources
+- Project and environment boundaries with `dev`, `test`, protected `prod`, active-scope assignment, and production approval controls
 - SMTP and HTTP(S) webhook delivery for completed job alerts
 - Notification policies for routed system, script, and job events
 - xterm.js-powered node CLI and generated RDP connection files
@@ -247,6 +249,18 @@ Dynamic collections are configured from **Node Inventory > Target Collections** 
 - The live preview is evaluated by the server with the same rule engine used by schedules and executions. Hover a matched node to see the successful condition explanations.
 - The **Changes** action on a dynamic collection opens durable membership history, including additions, removals, timestamps, and the matched conditions that admitted a node.
 - Existing wildcard/source-filter groups continue to work and are automatically treated as an equivalent rule tree when read or synchronized.
+
+### Tags, Facts, And CMDB Enrichment
+
+Each node has an operational **Context** tab for business owner, owning team, criticality, business service, maintenance-window metadata, normalized host facts, and custom key/value facts. These facts are available to dynamic host-group rules and remain separate from importer-provided source metadata.
+
+Use **Node Inventory > CMDB Enrichment** to configure ServiceNow CMDB, generic REST JSON, or CSV sources. Every source defines how an upstream record identifies an existing node and maps source fields into normalized facts, custom facts, criticality, maintenance windows, and business service. Credentials are sealed at rest, and each synchronization records its input count, enriched-node count, status, timestamp, and provider error when applicable.
+
+### Projects And Environments
+
+Administrators use **Projects** to partition automation work. Creating a project automatically provisions **Development**, **Test**, and a protected **Production** environment. Select an environment to make it the active scope; newly created scripts, nodes, credentials, groups, and schedules inherit that project and environment.
+
+Production environments require approval when schedules are saved, and the existing resource-scoped RBAC grants can target organizations, projects, or individual environments. The project workspace also supports custom environment lanes and per-environment protection/approval controls.
 
 ### Managed Inventory Sources
 

@@ -23,7 +23,7 @@ export function computeNextRun(schedule, fromDate = new Date()) {
 
 export function listSchedules() {
   return all(
-    `SELECT s.id, s.name, s.cron_expression, s.timezone, s.mode, s.run_at, s.status, s.require_approval,
+    `SELECT s.id, s.name, s.cron_expression, s.timezone, s.mode, s.run_at, s.status, s.require_approval, s.project_id, s.environment_id,
             s.next_run_at, s.last_run_at, s.created_by, s.webhook_enabled, s.created_at, s.updated_at,
             COALESCE(json_group_array(DISTINCT ss.script_id), '[]') AS script_ids_json,
             COALESCE(json_group_array(DISTINCT CASE WHEN st.target_type = 'group' THEN st.target_id END), '[]') AS group_ids_json,
@@ -48,6 +48,7 @@ export function saveSchedule(payload, createdBy) {
   const scheduleId = payload.id || nanoid()
   const timestamp = nowIso()
   const existing = payload.id ? get('SELECT created_at, webhook_key, webhook_token FROM schedules WHERE id = ?', [payload.id]) : null
+  const environment = get('SELECT require_approval FROM environments WHERE id = ?', [payload.environmentId || 'env-default'])
   const scheduleData = {
     id: scheduleId,
     name: payload.name,
@@ -56,7 +57,7 @@ export function saveSchedule(payload, createdBy) {
     mode: payload.mode || 'recurring',
     runAt: payload.runAt || null,
     status: payload.status || 'enabled',
-    requireApproval: payload.requireApproval ? 1 : 0,
+    requireApproval: payload.requireApproval || environment?.require_approval ? 1 : 0,
     webhookEnabled: payload.webhookEnabled ? 1 : 0,
     webhookKey: payload.webhookEnabled ? existing?.webhook_key || crypto.randomBytes(24).toString('base64url') : null,
     webhookToken: payload.webhookEnabled ? existing?.webhook_token || crypto.randomBytes(32).toString('base64url') : null,
@@ -68,10 +69,10 @@ export function saveSchedule(payload, createdBy) {
     run(
       `INSERT INTO schedules (
          id, name, cron_expression, timezone, mode, run_at, status, require_approval, webhook_enabled, webhook_key, webhook_token,
-         next_run_at, last_run_at, created_by, created_at, updated_at
+         next_run_at, last_run_at, created_by, project_id, environment_id, created_at, updated_at
        ) VALUES (
          @id, @name, @cronExpression, @timezone, @mode, @runAt, @status, @requireApproval, @webhookEnabled, @webhookKey, @webhookToken,
-         @nextRunAt, NULL, @createdBy, @createdAt, @updatedAt
+         @nextRunAt, NULL, @createdBy, @projectId, @environmentId, @createdAt, @updatedAt
        )
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
@@ -84,6 +85,8 @@ export function saveSchedule(payload, createdBy) {
          webhook_enabled = excluded.webhook_enabled,
          webhook_key = excluded.webhook_key,
          webhook_token = excluded.webhook_token,
+         project_id = excluded.project_id,
+         environment_id = excluded.environment_id,
          next_run_at = excluded.next_run_at,
          updated_at = excluded.updated_at`,
       {
@@ -100,6 +103,7 @@ export function saveSchedule(payload, createdBy) {
         webhookToken: scheduleData.webhookToken,
         nextRunAt,
         createdBy,
+        projectId: payload.projectId || 'project-default', environmentId: payload.environmentId || 'env-default',
         createdAt: existing?.created_at || timestamp,
         updatedAt: timestamp,
       },

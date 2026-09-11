@@ -24,7 +24,7 @@ export function getCatalog(user = {}) {
     memberIds: JSON.parse(team.member_ids_json).filter(Boolean),
   }))
   const credentials = all(
-    `SELECT id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_type,
+    `SELECT id, name, scope, owner_user_id, team_ids_json, username, domain_name, protocol, secret_type, project_id, environment_id,
             notes, created_at, updated_at
      FROM credentials
      ORDER BY name ASC`,
@@ -34,7 +34,7 @@ export function getCatalog(user = {}) {
     teamIds: JSON.parse(credential.team_ids_json || '[]'),
   }))
   const machines = all(
-    `SELECT id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id, source_type, custom_facts_json,
+    `SELECT id, name, fqdn, ip_address, notes, os_family, transport, port, credential_id, source_type, project_id, environment_id, custom_facts_json, host_facts_json, owner_user_id, owner_team_id, criticality, maintenance_window_json, business_service,
             source_ref, last_tested_at, last_test_status, last_test_output, created_at, updated_at
      FROM machines
      ORDER BY name ASC`,
@@ -55,7 +55,7 @@ export function getCatalog(user = {}) {
     machineIds: JSON.parse(group.machine_ids_json).filter(Boolean),
   }))
   const schedules = all(
-    `SELECT s.id, s.name, s.cron_expression, s.timezone, s.mode, s.run_at, s.status, s.require_approval, s.webhook_enabled,
+    `SELECT s.id, s.name, s.cron_expression, s.timezone, s.mode, s.run_at, s.status, s.require_approval, s.webhook_enabled, s.project_id, s.environment_id,
             s.next_run_at, s.last_run_at, s.created_by, s.created_at, s.updated_at,
             COALESCE(json_group_array(DISTINCT ss.script_id), '[]') AS script_ids_json,
             COALESCE(json_group_array(DISTINCT CASE WHEN st.target_type = 'group' THEN st.target_id END), '[]') AS group_ids_json,

@@ -8,6 +8,7 @@ import InventoryView from '../views/InventoryView.vue'
 import VaultView from '../views/VaultView.vue'
 import TeamsView from '../views/TeamsView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import ProjectsView from '../views/ProjectsView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -21,6 +22,7 @@ const router = createRouter({
     { path: '/inventory', name: 'inventory', component: InventoryView },
     { path: '/vault', name: 'vault', component: VaultView },
     { path: '/teams', name: 'teams', component: TeamsView },
+    { path: '/projects', name: 'projects', component: ProjectsView },
     { path: '/settings', name: 'settings', component: SettingsView },
   ],
 })

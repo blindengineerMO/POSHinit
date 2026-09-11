@@ -23,6 +23,9 @@ const importDialog = ref(false)
 const azureArcImportDialog = ref(false)
 const subnetScanDialog = ref(false)
 const importLauncherDialog = ref(false)
+const cmdbDialog = ref(false)
+const cmdbSources = ref([])
+const cmdbEditor = ref(false)
 const vmwareKind = ref('')
 const proxmoxImportDialog = ref(false)
 const nodeTab = ref('record')
@@ -61,7 +64,15 @@ const nodeDraft = reactive({
   credentialId: '',
   sourceType: 'manual',
   sourceRef: '',
+  customFactsText: '{}',
+  hostFactsText: '{}',
+  ownerUserId: '',
+  ownerTeamId: '',
+  criticality: 'standard',
+  businessService: '',
+  maintenanceWindowText: '{}',
 })
+const cmdbDraft = reactive({ id: '', name: '', kind: 'servicenow', enabled: true, matchField: 'fqdn', config: { url: '', table: 'cmdb_ci_server', recordsPath: 'result', authType: 'bearer', username: '', password: '', authToken: '', csvText: '' }, mapping: { identity: 'name', hostFacts: { serial: 'serial_number', osVersion: 'os_version' }, customFacts: {}, criticality: 'operational_status', businessService: 'business_service' } })
 
 const groupDraft = reactive({
   id: '',
@@ -170,6 +181,7 @@ function openNode(machine) {
     credentialId: machine.credential_id || '',
     sourceType: machine.source_type || 'manual',
     sourceRef: machine.source_ref || '',
+    customFactsText: machine.custom_facts_json || '{}', hostFactsText: machine.host_facts_json || '{}', ownerUserId: machine.owner_user_id || '', ownerTeamId: machine.owner_team_id || '', criticality: machine.criticality || 'standard', businessService: machine.business_service || '', maintenanceWindowText: machine.maintenance_window_json || '{}',
   })
   nodeConnectionResult.value = null
   selectedRun.value = null
@@ -178,8 +190,13 @@ function openNode(machine) {
 }
 
 async function saveNode() {
-  await store.saveMachine(nodeDraft)
+  try { await store.saveMachine({ ...nodeDraft, customFacts: JSON.parse(nodeDraft.customFactsText || '{}'), hostFacts: JSON.parse(nodeDraft.hostFactsText || '{}'), maintenanceWindow: JSON.parse(nodeDraft.maintenanceWindowText || '{}') }) } catch (error) { window.alert(`Metadata must be valid JSON: ${error.message}`) }
 }
+async function refreshCmdbSources() { cmdbSources.value = await store.listCmdbSources() }
+function openCmdbSource(source = null) { Object.assign(cmdbDraft, source ? structuredClone(source) : { id: '', name: '', kind: 'servicenow', enabled: true, matchField: 'fqdn', config: { url: '', table: 'cmdb_ci_server', recordsPath: 'result', authType: 'bearer', username: '', password: '', authToken: '', csvText: '' }, mapping: { identity: 'name', hostFacts: { serial: 'serial_number' }, customFacts: {}, criticality: '', businessService: '' } }); cmdbEditor.value = true }
+async function saveCmdbSource() { await store.saveCmdbSource(cmdbDraft); cmdbEditor.value = false; await refreshCmdbSources() }
+async function syncCmdbSource(source) { await store.syncCmdbSource(source.id); await refreshCmdbSources(); await store.bootstrap() }
+async function removeCmdbSource(source) { await store.deleteCmdbSource(source.id); await refreshCmdbSources() }
 
 function resetGroup() {
   Object.assign(groupDraft, { id: '', name: '', description: '', groupType: 'manual', machineIds: [], matchPattern: '*', sourceIds: [], rule: { op: 'all', conditions: [{ field: 'name', operator: 'matches', value: '*' }], groups: [] } })
@@ -303,6 +320,8 @@ onBeforeUnmount(closeTerminal)
 
 <template>
   <div class="page-grid">
+    <FloatingWindow v-model="cmdbDialog" title="CMDB Enrichment Sources" :width="820" :start-x="205" :start-y="75"><div class="cmdb-window"><div class="dynamic-rule-head"><div><p class="section-eyebrow">Managed Enrichment</p><strong>ServiceNow, generic REST, and CSV records merge into existing nodes</strong></div><v-btn class="glass-button" size="small" prepend-icon="mdi-plus" @click="openCmdbSource()">Add Source</v-btn></div><article v-for="source in cmdbSources" :key="source.id" class="cmdb-source"><v-icon :color="source.health_state === 'healthy' ? 'success' : source.health_state === 'error' ? 'error' : undefined" icon="mdi-database-sync-outline"/><div><strong>{{ source.name }}</strong><span>{{ source.kind }} · match node {{ source.match_field }} · {{ source.enabled ? 'enabled' : 'paused' }}</span><small>{{ source.last_sync_at ? `last sync ${new Date(source.last_sync_at).toLocaleString()}` : 'not synchronized' }}{{ source.last_error ? ` · ${source.last_error}` : '' }}</small></div><div class="row-actions"><v-btn size="x-small" variant="text" @click="syncCmdbSource(source)">Sync</v-btn><v-btn size="x-small" icon="mdi-pencil-outline" variant="text" @click="openCmdbSource(source)"/><v-btn size="x-small" icon="mdi-delete-outline" variant="text" @click="removeCmdbSource(source)"/></div></article><p v-if="!cmdbSources.length" class="muted">No CMDB enrichment sources configured. Add ServiceNow, REST, or CSV data to attach business context to inventory nodes.</p><div class="window-actions"><v-btn variant="text" @click="cmdbDialog = false">Close</v-btn></div></div></FloatingWindow>
+    <FloatingWindow v-model="cmdbEditor" :title="cmdbDraft.id ? 'Edit CMDB Source' : 'Add CMDB Source'" :width="720" :start-x="300" :start-y="85"><form class="cmdb-form" @submit.prevent="saveCmdbSource"><v-select v-model="cmdbDraft.kind" :items="[{ title: 'ServiceNow CMDB', value: 'servicenow' }, { title: 'Generic REST JSON', value: 'rest' }, { title: 'CSV paste/import', value: 'csv' }]" label="Source type"/><v-text-field v-model="cmdbDraft.name" label="Source name"/><v-switch v-model="cmdbDraft.enabled" density="compact" color="success" hide-details label="Enabled"/><v-select v-model="cmdbDraft.matchField" :items="['fqdn', 'name', 'ip']" label="Match existing node by"/><template v-if="cmdbDraft.kind !== 'csv'"><v-text-field v-model="cmdbDraft.config.url" label="Base URL or REST endpoint"/><v-text-field v-if="cmdbDraft.kind === 'servicenow'" v-model="cmdbDraft.config.table" label="ServiceNow table"/><v-text-field v-model="cmdbDraft.config.recordsPath" label="JSON records path" hint="Use result for ServiceNow." persistent-hint/><v-select v-model="cmdbDraft.config.authType" :items="[{ title: 'Bearer token', value: 'bearer' }, { title: 'Basic authentication', value: 'basic' }]" label="Authentication"/><v-text-field v-if="cmdbDraft.config.authType === 'basic'" v-model="cmdbDraft.config.username" label="Username"/><v-text-field v-if="cmdbDraft.config.authType === 'basic'" v-model="cmdbDraft.config.password" type="password" label="Password (leave blank to retain)"/><v-text-field v-else v-model="cmdbDraft.config.authToken" type="password" label="Bearer token (leave blank to retain)"/></template><v-textarea v-else v-model="cmdbDraft.config.csvText" label="CSV content" rows="6" hint="First row is headers. Comma-delimited values only." persistent-hint/><v-text-field v-model="cmdbDraft.mapping.identity" label="Source identity field" hint="Field compared with the selected node match field." persistent-hint/><v-textarea :model-value="JSON.stringify(cmdbDraft.mapping.hostFacts, null, 2)" label="Normalized fact mapping (JSON)" rows="4" hint='Example: {"serial":"serial_number","osVersion":"os_version"}' persistent-hint @update:model-value="cmdbDraft.mapping.hostFacts = JSON.parse($event || '{}')"/><v-textarea :model-value="JSON.stringify(cmdbDraft.mapping.customFacts, null, 2)" label="Custom fact mapping (JSON)" rows="3" @update:model-value="cmdbDraft.mapping.customFacts = JSON.parse($event || '{}')"/><v-text-field v-model="cmdbDraft.mapping.criticality" label="Criticality source field (optional)"/><v-text-field v-model="cmdbDraft.mapping.businessService" label="Business service source field (optional)"/><div class="window-actions"><v-btn variant="text" @click="cmdbEditor = false">Cancel</v-btn><v-btn class="glass-button" type="submit">Save Source</v-btn></div></form></FloatingWindow>
     <FloatingWindow v-model="groupHistoryDialog" title="Dynamic Group Membership Changes" :width="680" :start-x="310" :start-y="115"><div class="group-history"><article v-for="event in groupHistory" :key="event.id"><v-icon :color="event.change_type === 'added' ? 'success' : 'warning'" :icon="event.change_type === 'added' ? 'mdi-account-plus-outline' : 'mdi-account-remove-outline'"/><div><strong>{{ event.machine_name || event.machine_id }} · {{ event.change_type }}</strong><span>{{ new Date(event.occurred_at).toLocaleString() }}</span><small v-if="event.reason.length">Matched: {{ event.reason.map((rule) => `${rule.field} ${rule.operator}`).join(' · ') }}</small></div></article><p v-if="!groupHistory.length" class="muted">No membership changes have been recorded yet.</p><div class="window-actions"><v-btn variant="text" @click="groupHistoryDialog = false">Close</v-btn></div></div></FloatingWindow>
     <div class="toolbar-row">
       <div>
@@ -311,7 +330,7 @@ onBeforeUnmount(closeTerminal)
       </div>
       <div class="chip-line">
         <v-btn class="glass-button" prepend-icon="mdi-server-plus-outline" @click="importLauncherDialog = true">Add Or Import Machines</v-btn>
-        <v-btn prepend-icon="mdi-folder-network-outline" variant="text" @click="openGroup()">Create Group</v-btn>
+        <v-btn prepend-icon="mdi-database-cog-outline" variant="text" @click="cmdbDialog = true; refreshCmdbSources()">CMDB Enrichment</v-btn><v-btn prepend-icon="mdi-folder-network-outline" variant="text" @click="openGroup()">Create Group</v-btn>
       </div>
     </div>
 
@@ -399,7 +418,7 @@ onBeforeUnmount(closeTerminal)
         </div>
         <v-tabs v-model="nodeTab" density="compact" class="node-tabs">
           <v-tab value="record" prepend-icon="mdi-server-cog-outline">Record</v-tab>
-          <v-tab value="connection" prepend-icon="mdi-lan-connect">Connection</v-tab>
+          <v-tab value="context" prepend-icon="mdi-tag-multiple-outline">Context</v-tab><v-tab value="connection" prepend-icon="mdi-lan-connect">Connection</v-tab>
           <v-tab value="history" prepend-icon="mdi-history">Run History <span class="tab-count">{{ nodeRunHistory.length }}</span></v-tab>
         </v-tabs>
         <v-window v-model="nodeTab" class="node-tab-content">
@@ -418,6 +437,7 @@ onBeforeUnmount(closeTerminal)
               <div class="node-actions full"><v-btn variant="text" @click="nodeDialog = false">Close</v-btn><v-btn class="glass-button" prepend-icon="mdi-content-save-outline" @click="saveNode">Save Node Record</v-btn></div>
             </div>
           </v-window-item>
+          <v-window-item value="context"><div class="node-form-grid"><v-select v-model="nodeDraft.ownerUserId" :items="store.catalog.users" item-title="email" item-value="id" clearable label="Business owner" density="compact"/><v-select v-model="nodeDraft.ownerTeamId" :items="store.catalog.teams" item-title="name" item-value="id" clearable label="Owning team" density="compact"/><v-select v-model="nodeDraft.criticality" :items="['low', 'standard', 'high', 'critical']" label="Criticality" density="compact"/><v-text-field v-model="nodeDraft.businessService" label="Business service" density="compact"/><v-textarea v-model="nodeDraft.customFactsText" label="Custom facts (JSON)" rows="5" density="compact" class="full"/><v-textarea v-model="nodeDraft.hostFactsText" label="Normalized host facts (JSON)" rows="5" density="compact" class="full"/><v-textarea v-model="nodeDraft.maintenanceWindowText" label="Maintenance window (JSON)" hint='Example: {"timezone":"America/Chicago","start":"22:00","end":"02:00"}' persistent-hint rows="3" density="compact" class="full"/><div class="node-actions full"><v-btn class="glass-button" prepend-icon="mdi-content-save-outline" @click="saveNode">Save Context</v-btn></div></div></v-window-item>
           <v-window-item value="connection">
             <div class="connection-pane">
               <div class="connection-summary"><v-icon icon="mdi-lan-connect" /><div><strong>Validate the configured transport</strong><span>Tests {{ nodeDraft.transport }} against {{ nodeDraft.fqdn || nodeDraft.ipAddress || 'the configured endpoint' }} and stores the outcome on this node.</span></div><v-btn class="glass-button" :disabled="!nodeDraft.id" prepend-icon="mdi-play" @click="testNodeConnection">Run Connection Test</v-btn></div>
@@ -451,6 +471,7 @@ onBeforeUnmount(closeTerminal)
 </template>
 
 <style scoped>
+.cmdb-window,.cmdb-form { display:grid; gap:12px; }.cmdb-source { display:grid; grid-template-columns:30px 1fr auto; gap:9px; align-items:center; padding:10px; border:1px solid var(--line); background:rgba(40,211,255,.035); }.cmdb-source div { display:grid; gap:2px; }.cmdb-source span,.cmdb-source small { color:var(--muted); font-size:.74rem; }.cmdb-form { grid-template-columns:repeat(2,minmax(0,1fr)); }.cmdb-form > :nth-last-child(1),.cmdb-form > :nth-last-child(2),.cmdb-form > :nth-last-child(3),.cmdb-form > :nth-last-child(4),.cmdb-form > :nth-last-child(5),.cmdb-form > :nth-last-child(6) { grid-column:1 / -1; }
 .rule-condition { display:grid; grid-template-columns:1fr 1fr 1.25fr auto; gap:8px; align-items:start; padding:8px; border:1px solid rgba(40,211,255,.16); background:rgba(3,7,11,.28); }.rule-branch { display:grid; gap:8px; padding:10px; border:1px dashed rgba(190,77,255,.42); background:rgba(190,77,255,.035); }.rule-actions { display:flex; gap:6px; flex-wrap:wrap; }.group-history { display:grid; gap:8px; }.group-history article { display:grid; grid-template-columns:28px 1fr; gap:9px; padding:10px; border:1px solid var(--line); background:rgba(40,211,255,.035); }.group-history article div { display:grid; gap:2px; }.group-history span,.group-history small { color:var(--muted); font-size:.74rem; }
 .page-title {
   margin: 4px 0 0;

@@ -25,6 +25,7 @@ export const useAppStore = defineStore('app', {
     logResults: [],
     loading: false,
     lastError: '',
+    activeScope: JSON.parse(globalThis.localStorage?.getItem('poshinit-active-scope') || '{"projectId":"project-default","environmentId":"env-default"}'),
   }),
   getters: {
     isAuthenticated: (state) => Boolean(state.token),
@@ -34,6 +35,7 @@ export const useAppStore = defineStore('app', {
       state.catalog.library?.filter?.((entry) => entry.scope === 'shared') || [],
   },
   actions: {
+    setActiveScope(scope) { this.activeScope = { projectId: scope.projectId || 'project-default', environmentId: scope.environmentId || 'env-default' }; globalThis.localStorage?.setItem('poshinit-active-scope', JSON.stringify(this.activeScope)) },
     async api(path, options = {}) {
       const response = await fetch(path, {
         ...options,
@@ -128,7 +130,7 @@ export const useAppStore = defineStore('app', {
     async saveLibraryEntry(entry) {
       await this.api('/api/library', {
         method: 'POST',
-        body: JSON.stringify(entry),
+        body: JSON.stringify({ ...entry, ...this.activeScope }),
       })
       this.catalog.library = await this.api('/api/library')
     },
@@ -166,7 +168,7 @@ export const useAppStore = defineStore('app', {
     async saveSchedule(schedule) {
       const saved = await this.api('/api/schedules', {
         method: 'POST',
-        body: JSON.stringify(schedule),
+        body: JSON.stringify({ ...schedule, ...this.activeScope }),
       })
       this.catalog.schedules = await this.api('/api/schedules')
       await this.refreshDashboard()
@@ -175,6 +177,15 @@ export const useAppStore = defineStore('app', {
     async previewGroupRule(rule) { return this.api('/api/groups/preview', { method: 'POST', body: JSON.stringify({ rule }) }) },
     async groupMembershipHistory(id) { return this.api(`/api/groups/${id}/history`) },
     async explainGroupMachine(id, machineId) { return this.api(`/api/groups/${id}/machines/${machineId}/explanation`) },
+    async listCmdbSources() { return this.api('/api/cmdb-sources') },
+    async saveCmdbSource(source) { return this.api('/api/cmdb-sources', { method: 'POST', body: JSON.stringify(source) }) },
+    async deleteCmdbSource(id) { return this.api(`/api/cmdb-sources/${id}`, { method: 'DELETE' }) },
+    async syncCmdbSource(id) { return this.api(`/api/cmdb-sources/${id}/sync`, { method: 'POST' }) },
+    async cmdbSourceRuns(id) { return this.api(`/api/cmdb-sources/${id}/runs`) },
+    async listProjects() { return this.api('/api/projects') },
+    async saveProject(project) { return this.api('/api/projects', { method: 'POST', body: JSON.stringify(project) }) },
+    async saveEnvironment(environment) { return this.api('/api/projects/environments', { method: 'POST', body: JSON.stringify(environment) }) },
+    async deleteProject(id) { return this.api(`/api/projects/${id}`, { method: 'DELETE' }) },
     async listApprovals() { return this.api('/api/approvals') },
     async decideApproval(id, status, notes = '') { const result = await this.api(`/api/approvals/${id}/decision`, { method: 'POST', body: JSON.stringify({ status, notes }) }); await this.bootstrap(); return result },
     async getScheduleWebhook(id) {
@@ -238,7 +249,7 @@ export const useAppStore = defineStore('app', {
     async saveMachine(machine) {
       await this.api('/api/machines', {
         method: 'POST',
-        body: JSON.stringify(machine),
+        body: JSON.stringify({ ...machine, ...this.activeScope }),
       })
       this.catalog.machines = await this.api('/api/machines')
     },
@@ -271,14 +282,14 @@ export const useAppStore = defineStore('app', {
     async saveGroup(group) {
       await this.api('/api/groups', {
         method: 'POST',
-        body: JSON.stringify(group),
+        body: JSON.stringify({ ...group, ...this.activeScope }),
       })
       this.catalog.groups = await this.api('/api/groups')
     },
     async saveCredential(credential) {
       await this.api('/api/credentials', {
         method: 'POST',
-        body: JSON.stringify(credential),
+        body: JSON.stringify({ ...credential, ...this.activeScope }),
       })
       await this.bootstrap()
     },

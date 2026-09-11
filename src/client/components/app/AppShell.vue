@@ -15,6 +15,7 @@ const items = [
   { to: '/inventory', icon: 'mdi-server-network-outline', label: 'Node Inventory' },
   { to: '/vault', icon: 'mdi-key-variant', label: 'Secret Vault', roles: ['admin', 'operator'] },
   { to: '/teams', icon: 'mdi-account-group-outline', label: 'Access Control', roles: ['admin'] },
+  { to: '/projects', icon: 'mdi-folder-cog-outline', label: 'Projects', roles: ['admin'] },
   { to: '/settings', icon: 'mdi-cog-outline', label: 'System Settings', roles: ['admin'] },
 ]
 const page = computed(() => items.find((item) => item.to === route.path) || items[0])

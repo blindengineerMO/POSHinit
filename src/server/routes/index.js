@@ -29,6 +29,8 @@ import { deleteNotificationPolicy, listNotificationPolicies, saveNotificationPol
 import { downloadDispatchOutput, enqueueDispatch, getDispatch, getReliabilityStatus, listDeadLetters, listDispatchEvents, requeueDeadLetter, requestDispatchCancellation, subscribeDispatch, tailDispatchOutput } from '../services/jobQueueService.js'
 import { assertDispatchPermissions, assertResourcePermission, deleteAccessGrant, listAccessGrants, listScopeHierarchy, saveAccessGrant } from '../services/rbacService.js'
 import { listParameterSets, saveParameterSet } from '../services/parameterService.js'
+import { deleteCmdbEnrichmentSource, listCmdbEnrichmentRuns, listCmdbEnrichmentSources, saveCmdbEnrichmentSource, syncCmdbEnrichmentSource } from '../services/cmdbEnrichmentService.js'
+import { deleteProject, projectHierarchy, saveEnvironment, saveProject } from '../services/projectService.js'
 import { ensureManagedInventorySources, listInventorySourceErrors, listInventorySourceHistory, listInventorySources, syncInventorySource, updateInventorySource } from '../services/inventorySourceService.js'
 
 const upload = multer({
@@ -240,6 +242,12 @@ export function createRouter() {
     res.json(listGroups())
   })
 
+  router.get('/api/cmdb-sources', requirePermission('inventory:manage'), (req, res) => { assertResourcePermission(req.user, 'edit', 'inventory'); res.json(listCmdbEnrichmentSources()) })
+  router.post('/api/cmdb-sources', requirePermission('inventory:manage'), (req, res) => { assertResourcePermission(req.user, 'edit', 'inventory'); res.json(saveCmdbEnrichmentSource(req.body)) })
+  router.delete('/api/cmdb-sources/:id', requirePermission('inventory:manage'), (req, res) => { assertResourcePermission(req.user, 'edit', 'inventory'); res.json({ deleted: deleteCmdbEnrichmentSource(req.params.id) }) })
+  router.get('/api/cmdb-sources/:id/runs', requirePermission('inventory:read'), (req, res) => { res.json(listCmdbEnrichmentRuns(req.params.id)) })
+  router.post('/api/cmdb-sources/:id/sync', async (req, res, next) => { try { assertResourcePermission(req.user, 'edit', 'inventory'); res.json(await syncCmdbEnrichmentSource(req.params.id)) } catch (error) { next(error) } })
+
   router.post('/api/groups/preview', requirePermission('inventory:manage'), requireResourcePermission('edit', 'inventory'), (req, res) => {
     res.json(previewDynamicGroup(req.body.rule))
   })
@@ -325,6 +333,10 @@ export function createRouter() {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage scoped grants' })
     return res.json({ grants: listAccessGrants(), hierarchy: listScopeHierarchy() })
   })
+  router.get('/api/projects', requirePermission('identity:manage'), (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage projects' }); res.json(projectHierarchy()) })
+  router.post('/api/projects', requirePermission('identity:manage'), (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage projects' }); res.json(saveProject(req.body)) })
+  router.post('/api/projects/environments', requirePermission('identity:manage'), (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage environments' }); res.json(saveEnvironment(req.body)) })
+  router.delete('/api/projects/:id', requirePermission('identity:manage'), (req, res, next) => { try { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage projects' }); res.json({ deleted: deleteProject(req.params.id) }) } catch (error) { next(error) } })
   router.post('/api/access-grants', requirePermission('identity:manage'), (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage scoped grants' })
     return res.json(saveAccessGrant(req.body, req.user.id))
