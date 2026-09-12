@@ -70,8 +70,11 @@ export function deleteNotificationPolicy(id) { run('DELETE FROM notification_pol
 export function setNotificationPolicyEnabled(id, enabled) { run('UPDATE notification_policies SET enabled = @enabled, updated_at = @updatedAt WHERE id = @id', { id, enabled: enabled ? 1 : 0, updatedAt: nowIso() }); return mapPolicy(get('SELECT * FROM notification_policies WHERE id = ?', [id])) }
 
 export async function dispatchNotificationEvent(event) {
-  const policies = listNotificationPolicies().filter((policy) => policy.enabled && policy.eventTypes.includes(event.type) && policyAllowed(policy))
-  await Promise.all(policies.map((policy) => sendPolicyAlert(policy, { ...event, recipientEmails: recipientEmails(policy) })))
+  const { observeOperation } = await import('../observability.js')
+  return observeOperation('notification', 'dispatch', { eventType: event.type }, async () => {
+    const policies = listNotificationPolicies().filter((policy) => policy.enabled && policy.eventTypes.includes(event.type) && policyAllowed(policy))
+    await Promise.all(policies.map((policy) => sendPolicyAlert(policy, { ...event, recipientEmails: recipientEmails(policy) })))
+  })
 }
 
 export async function testNotificationPolicy(id) {

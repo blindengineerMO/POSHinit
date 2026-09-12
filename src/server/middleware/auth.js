@@ -1,6 +1,7 @@
 import { get } from '../db/client.js'
 import { assertResourcePermission, hasPermission } from '../services/rbacService.js'
 import { verifyToken } from '../utils/crypto.js'
+import { recordAudit } from '../services/auditService.js'
 
 export function requireAuth(req, _res, next) {
   const authHeader = req.headers.authorization || ''
@@ -32,7 +33,8 @@ export function requireAuth(req, _res, next) {
 
 export function requirePermission(permission) {
   return (req, _res, next) => {
-    if (hasPermission(req.user, permission)) return next()
+    if (hasPermission(req.user, permission)) { recordAudit({ actorId: req.user.id, action: 'permission.decision', resourceType: 'permission', resourceId: permission, context: { allowed: true } }); return next() }
+    recordAudit({ actorId: req.user?.id, action: 'permission.decision', resourceType: 'permission', resourceId: permission, outcome: 'denied', context: { allowed: false } })
     const error = new Error(`Your role does not have permission to ${permission}`)
     error.statusCode = 403
     return next(error)
@@ -43,8 +45,10 @@ export function requireResourcePermission(action, resourceType, resolveId = (req
   return (req, _res, next) => {
     try {
       assertResourcePermission(req.user, action, resourceType, resolveId(req))
+      recordAudit({ actorId: req.user.id, action: 'permission.decision', resourceType, resourceId: resolveId(req), context: { action, allowed: true } })
       return next()
     } catch (error) {
+      recordAudit({ actorId: req.user?.id, action: 'permission.decision', resourceType, resourceId: resolveId(req), outcome: 'denied', context: { action, allowed: false } })
       return next(error)
     }
   }

@@ -513,6 +513,26 @@ function createTables() {
       error_message TEXT,
       FOREIGN KEY (source_id) REFERENCES cmdb_enrichment_sources(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id TEXT PRIMARY KEY,
+      sequence INTEGER NOT NULL UNIQUE,
+      occurred_at TEXT NOT NULL,
+      actor_id TEXT,
+      actor_type TEXT NOT NULL DEFAULT 'user',
+      action TEXT NOT NULL,
+      resource_type TEXT NOT NULL,
+      resource_id TEXT,
+      outcome TEXT NOT NULL,
+      before_json TEXT NOT NULL DEFAULT '{}',
+      after_json TEXT NOT NULL DEFAULT '{}',
+      context_json TEXT NOT NULL DEFAULT '{}',
+      previous_hash TEXT,
+      event_hash TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS audit_events_occurred_idx ON audit_events(occurred_at DESC);
+    CREATE TRIGGER IF NOT EXISTS audit_events_immutable_update BEFORE UPDATE ON audit_events BEGIN SELECT RAISE(ABORT, 'Audit events are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS audit_events_immutable_delete BEFORE DELETE ON audit_events BEGIN SELECT RAISE(ABORT, 'Audit events are immutable'); END;
   `)
 }
 

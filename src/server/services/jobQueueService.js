@@ -5,6 +5,7 @@ import { writeLog } from './logService.js'
 import { redactOutput } from './outputRedactionService.js'
 import { getSettings } from './settingsService.js'
 import { logger } from '../utils/logger.js'
+import { recordAudit } from './auditService.js'
 
 const listeners = new Map()
 const activeTargets = new Map()
@@ -146,6 +147,7 @@ export function enqueueDispatch(payload, requestedBy, options = {}) {
   })
   appendEvent(dispatchId, null, 'dispatch', { dispatchId, status: 'queued', targetCount: scriptIds.length * machineIds.length, deadlineAt })
   writeLog('info', 'queue', 'Execution dispatch queued', { dispatchId, triggerType, requestedBy, targetCount: scriptIds.length * machineIds.length })
+  recordAudit({ actorId: requestedBy, action: 'execution.dispatch', resourceType: 'dispatch', resourceId: dispatchId, context: { triggerType, scriptIds, targetIds: machineIds, targetCount: scriptIds.length * machineIds.length } })
   return { ...getDispatch(dispatchId), reused: false }
 }
 
@@ -279,6 +281,7 @@ async function executeTarget(target) {
   const runtime = { cancelled: false, timedOut: false, cancelActive: null, redactOutput }
   activeTargets.set(target.id, { dispatchId: target.dispatch_id, runtime })
   appendEvent(target.dispatch_id, target.id, 'target-started', { targetId: target.id, scriptId: target.script_id, machineId: target.machine_id, attempt: target.attempt })
+  recordAudit({ actorType: 'worker', action: 'execution.target.start', resourceType: 'target', resourceId: target.id, context: { workerIdentity: `api-worker:${process.pid}`, dispatchId: target.dispatch_id, scriptId: target.script_id, targetIdentity: target.machine_id, attempt: target.attempt } })
   let timeout
   try {
     timeout = setTimeout(() => {
@@ -312,6 +315,7 @@ async function executeTarget(target) {
       const circuitOpened = recordCircuitOutcome(target.machine_id, failed && !runtime.cancelled, execution.stderr, settings)
       if (circuitOpened) appendEvent(target.dispatch_id, target.id, 'circuit-opened', { machineId: target.machine_id, retryAfterSeconds: settings.circuitOpenSeconds })
       appendEvent(target.dispatch_id, target.id, 'complete', { targetId: target.id, execution: { ...execution, status } })
+      recordAudit({ actorType: 'worker', action: 'execution.target.complete', resourceType: 'target', resourceId: target.id, outcome: status, context: { workerIdentity: `api-worker:${process.pid}`, dispatchId: target.dispatch_id, executionId: execution.id, targetIdentity: target.machine_id } })
     }
   } catch (error) {
     clearTimeout(timeout)

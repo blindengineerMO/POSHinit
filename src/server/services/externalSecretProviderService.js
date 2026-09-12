@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 import { nowIso, run } from '../db/client.js'
 import { decryptSecret } from '../utils/crypto.js'
 import { getStoredSecretProviderSettings } from './settingsService.js'
+import { recordAudit } from './auditService.js'
 
 export const providerKinds = [
   { id: 'azure-key-vault', label: 'Azure Key Vault', implemented: true },
@@ -57,9 +58,11 @@ export async function resolveExternalSecret(providerId, reference, selector = ''
         : (() => { throw new Error(`${provider.kind} provider interface is registered but not implemented yet`) })()
     if (value === undefined || value === null || value === '') throw new Error('External provider returned no secret value')
     audit(provider, reference, selector, context, 'success')
+    recordAudit({ actorType: 'worker', action: 'secret.resolve', resourceType: 'external_secret', resourceId: `${provider.id}:${reference}`, outcome: 'success', context: { providerKind: provider.kind, property: selector || null, executionId: context.executionId || null, scriptId: context.scriptId || null, targetId: context.machineId || null } })
     return String(value)
   } catch (error) {
     audit(provider, reference, selector, context, 'failed', error.message.slice(0, 180))
+    recordAudit({ actorType: 'worker', action: 'secret.resolve', resourceType: 'external_secret', resourceId: `${provider.id}:${reference}`, outcome: 'failed', context: { providerKind: provider.kind, property: selector || null, errorCode: error.message.slice(0, 180), executionId: context.executionId || null, targetId: context.machineId || null } })
     throw error
   }
 }

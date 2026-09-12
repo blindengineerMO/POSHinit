@@ -1,3 +1,4 @@
+import './observability.js'
 import { createApp } from './app.js'
 import { createServer } from 'node:http'
 import { config } from './config.js'
@@ -7,6 +8,7 @@ import { processQueuedJobs, recoverInterruptedJobs } from './services/jobQueueSe
 import { attachJobWebSocketGateway } from './services/jobWebSocketService.js'
 import { processDueInventorySources } from './services/inventorySourceService.js'
 import { logger } from './utils/logger.js'
+import { observeOperation } from './observability.js'
 
 initializeDatabase()
 const recoveredJobs = recoverInterruptedJobs()
@@ -22,7 +24,7 @@ server.listen(config.port, config.host, () => {
 
 setInterval(async () => {
   try {
-    const processed = await processDueSchedules()
+    const processed = await observeOperation('queue', 'schedule_poll', {}, () => processDueSchedules())
     if (processed) {
       logger.info({ processed }, 'scheduled executions processed')
     }
@@ -33,7 +35,7 @@ setInterval(async () => {
 
 setInterval(async () => {
   try {
-    await processQueuedJobs()
+    await observeOperation('worker', 'queue_poll', {}, () => processQueuedJobs())
   } catch (error) {
     logger.error({ error: error.message }, 'job worker loop failed')
   }
@@ -41,7 +43,7 @@ setInterval(async () => {
 
 setInterval(async () => {
   try {
-    const processed = await processDueInventorySources()
+    const processed = await observeOperation('integration', 'inventory_sync_poll', {}, () => processDueInventorySources())
     if (processed) logger.info({ processed }, 'managed inventory sources synchronized')
   } catch (error) {
     logger.error({ error: error.message }, 'inventory source worker failed')

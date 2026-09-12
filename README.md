@@ -26,6 +26,8 @@ This repository now contains a runnable greenfield foundation with:
 - Composable dynamic host-group rules with explainable previews and durable membership-change history
 - Node context, normalized facts, custom metadata, ownership, criticality, maintenance windows, business-service mapping, and CMDB enrichment sources
 - Project and environment boundaries with `dev`, `test`, protected `prod`, active-scope assignment, and production approval controls
+- Immutable hash-chained audit evidence with permission, approval, secret-access, worker/target, and output-export events plus Syslog/HTTP SIEM delivery
+- OpenTelemetry traces, Prometheus metrics, structured logs, and Collector/Grafana reference deployment assets
 - SMTP and HTTP(S) webhook delivery for completed job alerts
 - Notification policies for routed system, script, and job events
 - xterm.js-powered node CLI and generated RDP connection files
@@ -261,6 +263,20 @@ Use **Node Inventory > CMDB Enrichment** to configure ServiceNow CMDB, generic R
 Administrators use **Projects** to partition automation work. Creating a project automatically provisions **Development**, **Test**, and a protected **Production** environment. Select an environment to make it the active scope; newly created scripts, nodes, credentials, groups, and schedules inherit that project and environment.
 
 Production environments require approval when schedules are saved, and the existing resource-scoped RBAC grants can target organizations, projects, or individual environments. The project workspace also supports custom environment lanes and per-environment protection/approval controls.
+
+### Immutable Audit Trail
+
+POSHinit records append-only audit events in a hash chain. Database triggers reject updates and deletes, while the audit API verifies the chain head and reports an invalid sequence if integrity cannot be established. Entries capture before/after metadata for supported changes, permission allow/deny decisions, approvals, external secret access metadata, worker and target identities for execution, and output-export events. Secret values and output contents are never recorded in audit context.
+
+Configure delivery with `POST /api/settings/audit` as an administrator. The audit delivery profile supports UDP Syslog and signed HTTP event streams; the HTTP signing token is encrypted at rest and sent as `X-POSHinit-Audit-Signature` using HMAC-SHA256. Retrieve evidence and chain integrity through `GET /api/audit-events` as an administrator.
+
+### OpenTelemetry And Metrics
+
+POSHinit initializes OpenTelemetry at process startup. Automatic instrumentation covers HTTP/Express and outbound HTTP calls; explicit spans and metrics cover queue and worker polls, PowerShell remoting, inventory/CMDB integration work, and notification dispatch. Existing Pino JSON logs remain structured and are correlated by the OpenTelemetry runtime where supported.
+
+- Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to send traces to an OTLP/HTTP collector.
+- Prometheus metrics are exposed at `http://<host>:9464/metrics` by default. Configure `OTEL_PROMETHEUS_PORT`, `OTEL_SERVICE_NAME`, or disable startup with `OTEL_ENABLED=false`.
+- Reference OpenTelemetry Collector, Prometheus, and Grafana dashboard files are in [deploy/observability](/home/matthewp/Code/POSHinit/deploy/observability/README.md). Restrict the Prometheus endpoint and collector with your normal network controls.
 
 ### Managed Inventory Sources
 

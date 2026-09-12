@@ -1,0 +1,12 @@
+{
+  "title": "POSHinit Control Plane",
+  "uid": "poshinit-control-plane",
+  "timezone": "browser",
+  "panels": [
+    { "title": "Operations by Subsystem", "type": "timeseries", "targets": [{ "expr": "sum by (subsystem, operation, outcome) (rate(poshinit_operations_total[5m]))" }] },
+    { "title": "Operation Latency p95", "type": "timeseries", "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, subsystem, operation) (rate(poshinit_operation_duration_ms_bucket[5m])))" }] },
+    { "title": "HTTP Request Rate", "type": "timeseries", "targets": [{ "expr": "sum(rate(http_server_duration_count[5m]))" }] }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

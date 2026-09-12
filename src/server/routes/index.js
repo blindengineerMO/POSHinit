@@ -14,7 +14,7 @@ import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFi
 import { searchLogs } from '../services/logService.js'
 import { listMachines, saveCredential, saveMachine, testMachineCandidate, testMachineConnection, uploadAsset } from '../services/machineService.js'
 import { getSubnetScan, importSubnetScan, startSubnetScan } from '../services/subnetScanService.js'
-import { getSettings, saveEntraSettings, saveNotificationSettings, saveSecretProviderSettings, saveSettings } from '../services/settingsService.js'
+import { getSettings, saveAuditSettings, saveEntraSettings, saveNotificationSettings, saveSecretProviderSettings, saveSettings } from '../services/settingsService.js'
 import { getScheduleWebhook, getScheduleWebhookStatus, getWebhookSchedule, listSchedules, saveSchedule } from '../services/scheduleService.js'
 import { listTeams, saveTeam } from '../services/teamService.js'
 import { listUsers, saveUser } from '../services/userService.js'
@@ -31,6 +31,7 @@ import { assertDispatchPermissions, assertResourcePermission, deleteAccessGrant,
 import { listParameterSets, saveParameterSet } from '../services/parameterService.js'
 import { deleteCmdbEnrichmentSource, listCmdbEnrichmentRuns, listCmdbEnrichmentSources, saveCmdbEnrichmentSource, syncCmdbEnrichmentSource } from '../services/cmdbEnrichmentService.js'
 import { deleteProject, projectHierarchy, saveEnvironment, saveProject } from '../services/projectService.js'
+import { listAuditEvents, recordAudit, verifyAuditChain } from '../services/auditService.js'
 import { ensureManagedInventorySources, listInventorySourceErrors, listInventorySourceHistory, listInventorySources, syncInventorySource, updateInventorySource } from '../services/inventorySourceService.js'
 
 const upload = multer({
@@ -318,6 +319,7 @@ export function createRouter() {
   })
   router.get('/api/executions/dispatch/:dispatchId/output/download', requirePermission('runs:execute'), (req, res) => {
     if (!getDispatch(req.params.dispatchId)) return res.status(404).json({ error: 'Dispatch not found' })
+    recordAudit({ actorId: req.user.id, action: 'output.export', resourceType: 'dispatch', resourceId: req.params.dispatchId, context: { format: 'text', target: 'download' } })
     res.attachment(`poshinit-dispatch-${req.params.dispatchId}.log`).type('text/plain').send(downloadDispatchOutput(req.params.dispatchId))
   })
 
@@ -382,6 +384,10 @@ export function createRouter() {
     if (req.params.key === 'runtime') {
       if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure execution reliability controls' })
       return res.json(saveSettings('runtime', req.body))
+    }
+    if (req.params.key === 'audit') {
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can configure audit delivery' })
+      return res.json(saveAuditSettings(req.body))
     }
     if (req.params.key === 'entra') {
       if (req.user.role !== 'admin') {
@@ -504,6 +510,10 @@ export function createRouter() {
 
   router.get('/api/logs', (req, res) => {
     res.json(searchLogs(req.query.q || ''))
+  })
+  router.get('/api/audit-events', requirePermission('settings:manage'), (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can view audit evidence' })
+    return res.json({ events: listAuditEvents(req.query.q || ''), integrity: verifyAuditChain() })
   })
 
   return router

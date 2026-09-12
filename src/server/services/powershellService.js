@@ -106,10 +106,11 @@ export async function executeLocalPowerShell(content) {
 }
 
 export async function executePsRemoting({ target, port, username, password, content }) {
-  return runPwsh(
+  const { observeOperation } = await import('../observability.js')
+  return observeOperation('remoting', 'powershell', { target, port }, () => runPwsh(
     ['-NoProfile', '-NonInteractive', '-Command', '-'],
     buildPsRemotingScript({ target, port, username, password, content }),
-  )
+  ))
 }
 
 export function streamLocalPowerShell(content, handlers) { return streamPwsh(['-NoProfile', '-Command', '-'], content, handlers) }

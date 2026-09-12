@@ -71,7 +71,7 @@ export function normalizeRuntimeSettings(value = {}) {
 }
 
 export function getSettings() {
-  const settings = ['branding', 'vcenter', 'azureArc', 'proxmox', 'runtime', 'secretProviders'].reduce((accumulator, key) => {
+  const settings = ['branding', 'vcenter', 'azureArc', 'proxmox', 'runtime', 'secretProviders', 'audit'].reduce((accumulator, key) => {
     accumulator[key] = readSetting(key)
     return accumulator
   }, {})
@@ -79,8 +79,13 @@ export function getSettings() {
   settings.notifications = getNotificationSettings()
   settings.runtime = normalizeRuntimeSettings(settings.runtime)
   settings.secretProviders = publicSecretProviderSettings(settings.secretProviders)
+  settings.audit = publicAuditSettings(settings.audit)
   return settings
 }
+
+function publicAuditSettings(value = {}) { return { syslogHost: value.syslogHost || '', syslogPort: Number(value.syslogPort || 514), webhookUrl: value.webhookUrl || '', webhookConfigured: Boolean(value.webhookTokenEncrypted) } }
+export function saveAuditSettings(value = {}) { const existing = readSetting('audit'); const token = String(value.webhookToken || '').trim(); const next = { syslogHost: String(value.syslogHost || '').trim(), syslogPort: Number(value.syslogPort || 514), webhookUrl: String(value.webhookUrl || '').trim(), webhookTokenEncrypted: token ? encryptSecret(token) : existing.webhookTokenEncrypted || '' }; writeSetting('audit', next); return publicAuditSettings(next) }
+export function getStoredAuditSettings() { return readSetting('audit') }
 
 function publicSecretProviderSettings(value = {}) {
   return {

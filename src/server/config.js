@@ -34,6 +34,12 @@ export const config = {
   schedulerPollMs: Number(process.env.SCHEDULER_POLL_MS || 15000),
   workerPollMs: Number(process.env.WORKER_POLL_MS || 1000),
   inventorySyncPollMs: Number(process.env.INVENTORY_SYNC_POLL_MS || 60000),
+  observability: {
+    enabled: process.env.OTEL_ENABLED !== 'false',
+    serviceName: process.env.OTEL_SERVICE_NAME || 'poshinit',
+    otlpEndpoint: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || '',
+    prometheusPort: Number(process.env.OTEL_PROMETHEUS_PORT || 9464),
+  },
   demoPassword: process.env.DEMO_PASSWORD || 'ChangeMe123!',
   webhookSecret: process.env.WEBHOOK_SECRET || 'poshinit-webhook-secret',
 }

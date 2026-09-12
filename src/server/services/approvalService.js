@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { all, get, nowIso, run } from '../db/client.js'
 import { writeLog } from './logService.js'
+import { recordAudit } from './auditService.js'
 
 export function requestScheduleApproval(schedule) {
   const pending = get("SELECT id FROM approvals WHERE entity_type = 'schedule' AND entity_id = ? AND status = 'pending'", [schedule.id])
@@ -25,5 +26,6 @@ export function decideApproval(id, status, userId, notes = '') {
   if (!approval) throw new Error('Pending approval was not found')
   run('UPDATE approvals SET status = ?, approved_by = ?, notes = ?, updated_at = ? WHERE id = ?', [status, userId, notes || approval.notes, nowIso(), id])
   writeLog(status === 'approved' ? 'info' : 'warning', 'approval', `Approval ${status}`, { approvalId: id, entityId: approval.entity_id, decidedBy: userId })
+  recordAudit({ actorId: userId, action: `approval.${status}`, resourceType: approval.entity_type, resourceId: approval.entity_id, before: { status: 'pending' }, after: { status, notes: notes || approval.notes }, context: { approvalId: id } })
   return { ...approval, status, approved_by: userId, notes: notes || approval.notes }
 }
