@@ -30,7 +30,7 @@ function assetEntryPath(entry) {
 export function listLibrary() {
   return all(
     `SELECT id, parent_id, type, name, scope, owner_user_id, project_id, environment_id, content, asset_path, language,
-            is_published, notes, parameter_schema_json, created_at, updated_at
+            is_published, notes, parameter_schema_json, lifecycle_state, release_version, change_ticket, created_at, updated_at
      FROM library_entries
      ORDER BY scope, type DESC, name ASC`,
   ).map(mapEntry)
@@ -40,17 +40,17 @@ export function saveLibraryEntry(payload, userId) {
   const timestamp = nowIso()
   const entryId = payload.id || nanoid()
   const existing = payload.id
-    ? get('SELECT id, created_at FROM library_entries WHERE id = ?', [payload.id])
+    ? get('SELECT id, created_at, content, lifecycle_state FROM library_entries WHERE id = ?', [payload.id])
     : null
   const parameterSchema = payload.type === 'script' ? normalizeParameterSchema(payload.parameterSchema || []) : []
 
   run(
     `INSERT INTO library_entries (
        id, parent_id, type, name, scope, owner_user_id, project_id, environment_id, content, asset_path, language,
-       is_published, notes, parameter_schema_json, created_at, updated_at
+       is_published, notes, parameter_schema_json, lifecycle_state, created_at, updated_at
      ) VALUES (
        @id, @parentId, @type, @name, @scope, @ownerUserId, @projectId, @environmentId, @content, @assetPath, @language,
-       @isPublished, @notes, @parameterSchemaJson, @createdAt, @updatedAt
+       @isPublished, @notes, @parameterSchemaJson, @lifecycleState, @createdAt, @updatedAt
      )
      ON CONFLICT(id) DO UPDATE SET
        parent_id = excluded.parent_id,
@@ -65,6 +65,7 @@ export function saveLibraryEntry(payload, userId) {
        is_published = excluded.is_published,
        notes = excluded.notes,
        parameter_schema_json = excluded.parameter_schema_json,
+       lifecycle_state = excluded.lifecycle_state,
        updated_at = excluded.updated_at`,
     {
       id: entryId,
@@ -80,6 +81,8 @@ export function saveLibraryEntry(payload, userId) {
       isPublished: payload.isPublished ? 1 : 0,
       notes: payload.notes || '',
       parameterSchemaJson: JSON.stringify(parameterSchema),
+      // Any material edit invalidates the mutable draft until a new artifact is released.
+      lifecycleState: payload.type === 'script' && existing && existing.content !== (payload.content || '') ? 'draft' : existing?.lifecycle_state || 'draft',
       createdAt: existing?.created_at || timestamp,
       updatedAt: timestamp,
     },

@@ -2,7 +2,7 @@ import express from 'express'
 import multer from 'multer'
 import path from 'node:path'
 import { config } from '../config.js'
-import { all } from '../db/client.js'
+import { all, get } from '../db/client.js'
 import { requireAuth, requirePermission, requireResourcePermission } from '../middleware/auth.js'
 import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
@@ -11,6 +11,7 @@ import { buildTargetMachines, executeApprovedSchedule } from '../services/execut
 import { decideApproval, listApprovals } from '../services/approvalService.js'
 import { explainDynamicGroup, listGroupMembershipChanges, listGroups, previewDynamicGroup, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
+import { createRunbookRelease, getReleaseArtifact, getReleasePolicy, listRunbookReleases, reviewRunbookRelease, saveReleasePolicy, transitionRunbookRelease } from '../services/runbookReleaseService.js'
 import { searchLogs } from '../services/logService.js'
 import { listMachines, saveCredential, saveMachine, testMachineCandidate, testMachineConnection, uploadAsset } from '../services/machineService.js'
 import { getSubnetScan, importSubnetScan, startSubnetScan } from '../services/subnetScanService.js'
@@ -146,6 +147,36 @@ export function createRouter() {
 
   router.get('/api/library/:id/versions', (req, res) => {
     res.json(listScriptVersions(req.params.id))
+  })
+
+  router.get('/api/library/:id/releases', requirePermission('library:read'), (req, res) => {
+    res.json(listRunbookReleases(req.params.id))
+  })
+
+  router.post('/api/library/:id/releases', requirePermission('library:manage'), requireResourcePermission('edit', 'runbook'), (req, res) => {
+    res.json(createRunbookRelease(req.params.id, req.body, req.user.id))
+  })
+
+  router.post('/api/library/releases/:id/reviews', requirePermission('approvals:decide'), requireResourcePermission('approve', 'runbook', (req) => get('SELECT entry_id FROM runbook_releases WHERE id = ?', [req.params.id])?.entry_id || '*'), (req, res) => {
+    res.json(reviewRunbookRelease(req.params.id, req.body.decision, req.body.notes, req.user.id))
+  })
+
+  router.post('/api/library/releases/:id/transition', requirePermission('library:manage'), requireResourcePermission('admin', 'runbook', (req) => get('SELECT entry_id FROM runbook_releases WHERE id = ?', [req.params.id])?.entry_id || '*'), (req, res) => {
+    res.json(transitionRunbookRelease(req.params.id, req.body.state, req.user.id))
+  })
+
+  router.get('/api/library/releases/:id/artifact', requirePermission('library:read'), (req, res) => {
+    const artifact = getReleaseArtifact(req.params.id)
+    if (!artifact) return res.status(404).json({ error: 'Release artifact not found' })
+    return res.json(artifact)
+  })
+
+  router.get('/api/environments/:id/release-policy', requirePermission('library:read'), (req, res) => {
+    res.json(getReleasePolicy(req.params.id))
+  })
+
+  router.put('/api/environments/:id/release-policy', requirePermission('settings:manage'), requireResourcePermission('admin', 'runbook', () => '*'), (req, res) => {
+    res.json(saveReleasePolicy(req.params.id, req.body))
   })
 
   router.get('/api/library/:id/preview', (req, res) => {

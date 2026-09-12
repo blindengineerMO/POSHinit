@@ -106,6 +106,21 @@ function consumeRateLimit(settings) {
   )
 }
 
+function assertReleasedForProtectedTargets(scriptIds, machineIds) {
+  const protectedEnvironmentIds = [...new Set(machineIds.map((machineId) => get(`SELECT m.environment_id
+    FROM machines m JOIN environments e ON e.id = m.environment_id
+    WHERE m.id = ? AND e.is_protected = 1`, [machineId])?.environment_id).filter(Boolean))]
+  if (!protectedEnvironmentIds.length) return
+  scriptIds.forEach((scriptId) => protectedEnvironmentIds.forEach((environmentId) => {
+    const release = get("SELECT id FROM runbook_releases WHERE entry_id = ? AND environment_id = ? AND state = 'released'", [scriptId, environmentId])
+    if (!release) {
+      const error = new Error('A signed released runbook is required before execution against protected environment targets')
+      error.statusCode = 409
+      throw error
+    }
+  }))
+}
+
 export function enqueueDispatch(payload, requestedBy, options = {}) {
   const settings = runtimeSettings()
   if (settings.workerMode === 'maintenance') {
@@ -120,6 +135,7 @@ export function enqueueDispatch(payload, requestedBy, options = {}) {
     error.statusCode = 400
     throw error
   }
+  assertReleasedForProtectedTargets(scriptIds, machineIds)
   const idempotencyKey = String(options.idempotencyKey || payload.idempotencyKey || nanoid())
   const existing = get('SELECT * FROM job_dispatches WHERE idempotency_key = ?', [idempotencyKey])
   if (existing) return { ...mapDispatch(existing), targets: dispatchTargets(existing.id), reused: true }

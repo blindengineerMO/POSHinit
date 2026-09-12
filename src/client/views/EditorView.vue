@@ -11,6 +11,7 @@ const store = useAppStore()
 const explorerOpen = ref(false)
 const propertiesOpen = ref(false)
 const versionsOpen = ref(false)
+const releasesOpen = ref(false)
 const validation = ref(null)
 const selectedId = ref('')
 const loadedRevision = ref('')
@@ -18,6 +19,10 @@ const previewOpen = ref(false)
 const preview = ref(null)
 const fileInput = ref(null)
 const parameterSchemaText = ref('[]')
+const releases = ref([])
+const releaseError = ref('')
+const reviewNotes = ref('')
+const releaseDraft = reactive({ version: '', changeTicket: '', environmentId: '', requiredReviewerIds: [] })
 
 const draft = reactive({
   id: '',
@@ -31,6 +36,9 @@ const draft = reactive({
   isPublished: false,
   assetPath: '',
   parameterSchema: [],
+  lifecycleState: 'draft',
+  releaseVersion: '',
+  environmentId: '',
 })
 
 const libraryEntries = computed(() => store.catalog.library || [])
@@ -56,6 +64,9 @@ watch(
       isPublished: Boolean(entry.is_published),
       assetPath: entry.asset_path || '',
       parameterSchema: JSON.parse(entry.parameter_schema_json || '[]'),
+      lifecycleState: entry.lifecycle_state || 'draft',
+      releaseVersion: entry.release_version || '',
+      environmentId: entry.environment_id || '',
     })
     parameterSchemaText.value = JSON.stringify(draft.parameterSchema, null, 2)
   },
@@ -82,13 +93,18 @@ function createEntry({ parentId, type }) {
     isPublished: false,
     assetPath: '',
     parameterSchema: [],
+    lifecycleState: 'draft',
+    releaseVersion: '',
+    environmentId: store.activeScope.environmentId,
   })
   propertiesOpen.value = true
 }
 
 async function saveEntry() {
   try { draft.parameterSchema = JSON.parse(parameterSchemaText.value || '[]') } catch { throw new Error('Parameter schema must be valid JSON') }
-  await store.saveLibraryEntry(draft)
+  const saved = await store.saveLibraryEntry(draft)
+  draft.lifecycleState = saved.lifecycle_state || 'draft'
+  draft.releaseVersion = saved.release_version || ''
   loadedRevision.value = ''
 }
 
@@ -118,6 +134,51 @@ function loadRevision(version) {
   validation.value = null
   loadedRevision.value = version.version_label
   versionsOpen.value = false
+}
+
+const releaseUsers = computed(() => (store.catalog.users || []).filter((user) => user.status === 'active' && user.id !== store.currentUser?.id))
+const releaseStateColor = (state) => ({ released: 'success', approved: 'secondary', review: 'warning', deprecated: 'orange', retired: 'error' }[state] || 'default')
+
+async function openReleases() {
+  if (!draft.id || draft.type !== 'script') return
+  releaseError.value = ''
+  releaseDraft.environmentId = draft.environmentId || selectedEntry.value?.environment_id || store.activeScope.environmentId
+  releaseDraft.version = draft.releaseVersion ? `${draft.releaseVersion.split('.').slice(0, 2).join('.')}.${Number(draft.releaseVersion.split('.')[2] || 0) + 1}` : '1.0.0'
+  releaseDraft.changeTicket = draft.change_ticket || ''
+  releaseDraft.requiredReviewerIds = []
+  releases.value = await store.api(`/api/library/${draft.id}/releases`)
+  releasesOpen.value = true
+}
+
+async function submitRelease() {
+  try {
+    releaseError.value = ''
+    await store.api(`/api/library/${draft.id}/releases`, { method: 'POST', body: JSON.stringify(releaseDraft) })
+    releases.value = await store.api(`/api/library/${draft.id}/releases`)
+    await store.bootstrap()
+    draft.lifecycleState = selectedEntry.value?.lifecycle_state || 'review'
+  } catch (error) { releaseError.value = error.message }
+}
+
+async function decideRelease(release, decision) {
+  try {
+    releaseError.value = ''
+    await store.api(`/api/library/releases/${release.id}/reviews`, { method: 'POST', body: JSON.stringify({ decision, notes: reviewNotes.value }) })
+    reviewNotes.value = ''
+    releases.value = await store.api(`/api/library/${draft.id}/releases`)
+    await store.bootstrap()
+  } catch (error) { releaseError.value = error.message }
+}
+
+async function transitionRelease(release, state) {
+  try {
+    releaseError.value = ''
+    await store.api(`/api/library/releases/${release.id}/transition`, { method: 'POST', body: JSON.stringify({ state }) })
+    releases.value = await store.api(`/api/library/${draft.id}/releases`)
+    await store.bootstrap()
+    draft.lifecycleState = selectedEntry.value?.lifecycle_state || state
+    draft.releaseVersion = selectedEntry.value?.release_version || ''
+  } catch (error) { releaseError.value = error.message }
 }
 
 function chooseImport() {
@@ -166,6 +227,7 @@ async function openPreview() {
         <v-btn class="glass-button" prepend-icon="mdi-folder-open-outline" @click="explorerOpen = true">Open Library</v-btn>
         <v-btn prepend-icon="mdi-tune-vertical" variant="text" @click="propertiesOpen = true">Properties</v-btn>
         <v-btn prepend-icon="mdi-file-compare" variant="text" @click="loadVersions">Version History</v-btn>
+        <v-btn :disabled="!draft.id || draft.type !== 'script'" prepend-icon="mdi-rocket-launch-outline" variant="text" @click="openReleases">Release Control</v-btn>
         <v-btn prepend-icon="mdi-upload" variant="text" @click="chooseImport">Import File</v-btn>
         <v-btn :disabled="!draft.id" prepend-icon="mdi-eye-outline" variant="text" @click="openPreview">Preview</v-btn>
         <v-btn :disabled="!draft.id" prepend-icon="mdi-download" variant="text" @click="downloadEntry">Export</v-btn>
@@ -180,6 +242,11 @@ async function openPreview() {
       <div v-if="loadedRevision" class="revision-loaded">
         <v-icon icon="mdi-history" />
         <span>{{ loadedRevision }} loaded into the draft. Save to make it the current revision.</span>
+      </div>
+      <div v-if="draft.type === 'script'" class="release-strip">
+        <v-icon icon="mdi-source-branch" />
+        <span>Lifecycle: <strong>{{ draft.lifecycleState }}</strong>{{ draft.releaseVersion ? ` · latest ${draft.releaseVersion}` : '' }}</span>
+        <v-btn size="x-small" variant="text" @click="openReleases">Manage release</v-btn>
       </div>
     </NeonPanel>
 
@@ -227,6 +294,29 @@ async function openPreview() {
         <p v-if="!scriptVersions.length" class="muted">No saved revisions are available for this entry.</p>
       </div>
     </FloatingWindow>
+    <FloatingWindow v-model="releasesOpen" title="Runbook Release Control" :width="790" :start-x="250" :start-y="90">
+      <div class="release-manager">
+        <header class="release-heading"><div><p class="section-eyebrow">Signed Promotion Pipeline</p><h3>{{ draft.name }}</h3><span>Draft edits remain separate from immutable release artifacts.</span></div><v-chip :color="releaseStateColor(draft.lifecycleState)" size="small">{{ draft.lifecycleState }}</v-chip></header>
+        <v-alert v-if="releaseError" type="error" density="compact" variant="tonal">{{ releaseError }}</v-alert>
+        <form class="release-form" @submit.prevent="submitRelease">
+          <v-text-field v-model="releaseDraft.version" label="Semantic version" hint="Example: 1.4.0" persistent-hint />
+          <v-text-field v-model="releaseDraft.changeTicket" label="Change ticket" hint="Required by protected environments" persistent-hint />
+          <v-text-field v-model="releaseDraft.environmentId" label="Target environment ID" hint="Release policy and reviewer gate apply here" persistent-hint />
+          <v-select v-model="releaseDraft.requiredReviewerIds" :items="releaseUsers" item-title="email" item-value="id" label="Additional required reviewers" multiple chips clearable />
+          <div class="release-submit"><span>Creates a SHA-256 artifact signed by this deployment.</span><v-btn class="glass-button" type="submit" prepend-icon="mdi-send-check-outline">Submit for review</v-btn></div>
+        </form>
+        <v-text-field v-model="reviewNotes" density="compact" label="Review note (used for approve/reject)" />
+        <div class="release-list">
+          <article v-for="release in releases" :key="release.id" class="release-entry">
+            <div class="release-entry-head"><div><strong>v{{ release.version }}</strong><span>{{ release.environment_name || release.environment_id }} · {{ release.change_ticket || 'No change ticket' }}</span></div><div class="chip-line"><v-chip :color="releaseStateColor(release.state)" size="x-small">{{ release.state }}</v-chip><v-chip :color="release.artifactValid ? 'success' : 'error'" size="x-small">{{ release.artifactValid ? 'signature verified' : 'signature failed' }}</v-chip></div></div>
+            <p class="artifact-hash mono">SHA-256 {{ release.artifact_hash }}</p>
+            <p v-if="release.requiredReviewerIds.length" class="muted">Required: {{ release.requiredReviewerIds.length }} reviewer{{ release.requiredReviewerIds.length === 1 ? '' : 's' }} · {{ release.reviews.filter((review) => review.decision === 'approved').length }} approved</p>
+            <div class="release-actions"><v-btn v-if="release.state === 'review' && release.requiredReviewerIds.includes(store.currentUser?.id)" size="x-small" color="success" variant="tonal" @click="decideRelease(release, 'approved')">Approve</v-btn><v-btn v-if="release.state === 'review' && release.requiredReviewerIds.includes(store.currentUser?.id)" size="x-small" color="error" variant="text" @click="decideRelease(release, 'rejected')">Reject</v-btn><v-btn v-if="release.state === 'approved'" size="x-small" color="secondary" variant="tonal" @click="transitionRelease(release, 'released')">Release</v-btn><v-btn v-if="release.state === 'released'" size="x-small" variant="text" @click="transitionRelease(release, 'deprecated')">Deprecate</v-btn><v-btn v-if="['released', 'deprecated'].includes(release.state)" size="x-small" color="error" variant="text" @click="transitionRelease(release, 'retired')">Retire</v-btn></div>
+          </article>
+          <p v-if="!releases.length" class="muted">No signed release artifacts yet. Save a draft, then submit the first release.</p>
+        </div>
+      </div>
+    </FloatingWindow>
     <FloatingWindow v-model="previewOpen" :title="`Preview: ${preview?.name || ''}`" :width="680" :start-x="330" :start-y="120"><div v-if="preview" class="file-preview"><img v-if="preview.kind === 'image'" :src="preview.url" :alt="preview.name" /><pre v-else-if="preview.kind === 'text'">{{ preview.content || 'This file is empty.' }}</pre><div v-else class="asset-stage"><v-icon icon="mdi-file-question-outline" size="42" /><span>This file cannot be previewed safely. Export it to inspect it locally.</span></div></div></FloatingWindow>
   </div>
 </template>
@@ -251,6 +341,9 @@ async function openPreview() {
   color: #9fd7ff;
   font-size: .78rem;
 }
+
+.release-strip { display:flex; align-items:center; gap:8px; margin:0 14px 14px; padding:9px 12px; border:1px solid rgba(93,220,175,.25); background:rgba(93,220,175,.06); color:var(--muted); font-size:.76rem; }.release-strip strong { color:#9ceccc; text-transform:uppercase; }.release-strip .v-btn { margin-left:auto; }
+.release-manager { display:grid; gap:14px; }.release-heading,.release-entry-head,.release-submit,.release-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; }.release-heading h3 { margin:3px 0; }.release-heading span,.release-submit span,.release-entry-head span { color:var(--muted); font-size:.76rem; }.release-heading > div,.release-entry-head > div:first-child { display:grid; gap:3px; }.release-form { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:14px; border:1px solid rgba(40,211,255,.23); background:linear-gradient(135deg,rgba(40,211,255,.07),rgba(190,77,255,.05)); }.release-submit { grid-column:1 / -1; }.release-list { display:grid; gap:10px; max-height:42vh; overflow:auto; }.release-entry { display:grid; gap:8px; padding:12px; border:1px solid var(--line); background:rgba(5,11,21,.68); }.artifact-hash { margin:0; overflow-wrap:anywhere; color:#9fd7ff; font-size:.69rem; }.release-entry .muted { margin:0; font-size:.74rem; }.release-actions { justify-content:flex-start; }
 
 .editor-meta {
   display: grid;
@@ -315,6 +408,7 @@ async function openPreview() {
     align-items: stretch;
     flex-direction: column;
   }
+  .release-form { grid-template-columns:1fr; }.release-submit,.release-heading { align-items:flex-start; flex-direction:column; }
 }
 
 </style>

@@ -264,6 +264,14 @@ Administrators use **Projects** to partition automation work. Creating a project
 
 Production environments require approval when schedules are saved, and the existing resource-scoped RBAC grants can target organizations, projects, or individual environments. The project workspace also supports custom environment lanes and per-environment protection/approval controls.
 
+### Runbook Release Lifecycle
+
+Script Studio keeps working copies as drafts and promotes immutable artifacts through `draft`, `review`, `approved`, `released`, `deprecated`, and `retired` states. Open **Release Control** from the Script Studio command bar to submit the current script content as a semantic version, associate a change ticket, choose the target environment, and add reviewers. The server records a SHA-256 content hash and an HMAC-SHA256 signature for every artifact; the release window verifies both before showing it as promotable.
+
+Administrators configure each environment's **Release Policy** from **Projects** using the shield action beside an environment. Policies can require semantic versions, a change ticket, and a specific set of reviewers. Every required reviewer must approve before the author or release manager can release the artifact. Releasing a newer artifact automatically deprecates the prior release for that runbook/environment; released artifacts can subsequently be deprecated or retired without changing their preserved content.
+
+Protected-environment dispatches are rejected unless every selected script has a currently `released` signed artifact for that environment. Saving a material script edit moves its mutable working copy back to `draft`, so it cannot silently replace the approved content. Lifecycle submissions, reviews, promotions, and state changes are recorded in the immutable audit trail. Use `GET /api/library/releases/:id/artifact` to retrieve an artifact's hash, signature, content, and verification result for external evidence workflows.
+
 ### Immutable Audit Trail
 
 POSHinit records append-only audit events in a hash chain. Database triggers reject updates and deletes, while the audit API verifies the chain head and reports an invalid sequence if integrity cannot be established. Entries capture before/after metadata for supported changes, permission allow/deny decisions, approvals, external secret access metadata, worker and target identities for execution, and output-export events. Secret values and output contents are never recorded in audit context.

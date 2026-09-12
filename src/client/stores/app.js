@@ -128,11 +128,12 @@ export const useAppStore = defineStore('app', {
       this.catalog.executions = this.dashboard.recentExecutions
     },
     async saveLibraryEntry(entry) {
-      await this.api('/api/library', {
+      const saved = await this.api('/api/library', {
         method: 'POST',
         body: JSON.stringify({ ...entry, ...this.activeScope }),
       })
       this.catalog.library = await this.api('/api/library')
+      return saved
     },
     async deleteLibraryEntry(id) {
       await this.api(`/api/library/${id}`, { method: 'DELETE' })

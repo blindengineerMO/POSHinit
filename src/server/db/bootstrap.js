@@ -549,6 +549,106 @@ function ensureUserIdentitySchema() {
 
 function ensureScriptParameterSchema() { const columns = db.prepare('PRAGMA table_info(library_entries)').all().map((column) => column.name); if (!columns.includes('parameter_schema_json')) db.exec("ALTER TABLE library_entries ADD COLUMN parameter_schema_json TEXT NOT NULL DEFAULT '[]'") }
 
+function ensureRunbookReleaseSchema() {
+  const columns = db.prepare('PRAGMA table_info(library_entries)').all().map((column) => column.name)
+  if (!columns.includes('lifecycle_state')) db.exec("ALTER TABLE library_entries ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'draft'")
+  if (!columns.includes('release_version')) db.exec('ALTER TABLE library_entries ADD COLUMN release_version TEXT')
+  if (!columns.includes('change_ticket')) db.exec('ALTER TABLE library_entries ADD COLUMN change_ticket TEXT')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS runbook_releases (
+      id TEXT PRIMARY KEY,
+      entry_id TEXT NOT NULL,
+      version TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'draft',
+      environment_id TEXT NOT NULL,
+      change_ticket TEXT,
+      artifact_content TEXT NOT NULL,
+      artifact_hash TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      required_reviewer_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_by TEXT,
+      approved_at TEXT,
+      approved_by TEXT,
+      released_at TEXT,
+      released_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(entry_id, version),
+      FOREIGN KEY (entry_id) REFERENCES library_entries(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS runbook_release_reviews (
+      id TEXT PRIMARY KEY,
+      release_id TEXT NOT NULL,
+      reviewer_id TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(release_id, reviewer_id),
+      FOREIGN KEY (release_id) REFERENCES runbook_releases(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS environment_release_policies (
+      environment_id TEXT PRIMARY KEY,
+      required_reviewer_ids_json TEXT NOT NULL DEFAULT '[]',
+      require_change_ticket INTEGER NOT NULL DEFAULT 0,
+      require_semver INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS runbook_releases_entry_idx ON runbook_releases(entry_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS runbook_release_reviews_release_idx ON runbook_release_reviews(release_id);
+  `)
+  const timestamp = nowIso()
+  run("INSERT OR IGNORE INTO environment_release_policies (environment_id, require_change_ticket, require_semver, updated_at) VALUES ('env-default', 1, 1, ?)", [timestamp])
+}
+
+function ensureApprovalWorkflowSchema() {
+  const approvalColumns = db.prepare('PRAGMA table_info(approvals)').all().map((column) => column.name)
+  if (!approvalColumns.includes('policy_id')) db.exec('ALTER TABLE approvals ADD COLUMN policy_id TEXT')
+  if (!approvalColumns.includes('expires_at')) db.exec('ALTER TABLE approvals ADD COLUMN expires_at TEXT')
+  if (!approvalColumns.includes('escalates_at')) db.exec('ALTER TABLE approvals ADD COLUMN escalates_at TEXT')
+  if (!approvalColumns.includes('escalated_at')) db.exec('ALTER TABLE approvals ADD COLUMN escalated_at TEXT')
+  if (!approvalColumns.includes('change_ticket')) db.exec('ALTER TABLE approvals ADD COLUMN change_ticket TEXT')
+  if (!approvalColumns.includes('emergency_justification')) db.exec('ALTER TABLE approvals ADD COLUMN emergency_justification TEXT')
+  if (!approvalColumns.includes('evidence_json')) db.exec("ALTER TABLE approvals ADD COLUMN evidence_json TEXT NOT NULL DEFAULT '{}'")
+  const scheduleColumns = db.prepare('PRAGMA table_info(schedules)').all().map((column) => column.name)
+  if (!scheduleColumns.includes('change_ticket')) db.exec('ALTER TABLE schedules ADD COLUMN change_ticket TEXT')
+  if (!scheduleColumns.includes('emergency_justification')) db.exec('ALTER TABLE schedules ADD COLUMN emergency_justification TEXT')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS approval_policies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      environment_id TEXT NOT NULL UNIQUE,
+      approver_team_ids_json TEXT NOT NULL DEFAULT '[]',
+      approver_user_ids_json TEXT NOT NULL DEFAULT '[]',
+      quorum INTEGER NOT NULL DEFAULT 1,
+      expires_minutes INTEGER NOT NULL DEFAULT 60,
+      escalation_minutes INTEGER NOT NULL DEFAULT 30,
+      escalation_user_ids_json TEXT NOT NULL DEFAULT '[]',
+      separation_of_duties INTEGER NOT NULL DEFAULT 1,
+      emergency_enabled INTEGER NOT NULL DEFAULT 0,
+      require_change_ticket INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS approval_votes (
+      id TEXT PRIMARY KEY,
+      approval_id TEXT NOT NULL,
+      voter_id TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(approval_id, voter_id),
+      FOREIGN KEY (approval_id) REFERENCES approvals(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS approvals_pending_expiry_idx ON approvals(status, expires_at);
+    CREATE INDEX IF NOT EXISTS approval_votes_approval_idx ON approval_votes(approval_id);
+  `)
+}
+
 function ensureDynamicGroupSchema() {
   const columns = db.prepare('PRAGMA table_info(deployment_groups)').all().map((column) => column.name)
   if (!columns.includes('group_type')) db.exec("ALTER TABLE deployment_groups ADD COLUMN group_type TEXT NOT NULL DEFAULT 'manual'")
@@ -961,6 +1061,8 @@ export function initializeDatabase() {
   ensureProjectEnvironmentSchema()
   ensureInventorySourceSchema()
   ensureScriptParameterSchema()
+  ensureRunbookReleaseSchema()
+  ensureApprovalWorkflowSchema()
   ensureDynamicGroupSchema()
   seedSettings()
   seedDemoData()
