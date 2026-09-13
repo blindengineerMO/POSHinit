@@ -1,31 +1,65 @@
 import { nanoid } from 'nanoid'
-import { all, get, nowIso, run } from '../db/client.js'
+import { all, get, nowIso, run, transaction } from '../db/client.js'
 import { writeLog } from './logService.js'
 import { recordAudit } from './auditService.js'
 
-export function requestScheduleApproval(schedule) {
-  const pending = get("SELECT id FROM approvals WHERE entity_type = 'schedule' AND entity_id = ? AND status = 'pending'", [schedule.id])
-  if (pending) return pending
-  const timestamp = nowIso()
-  const approval = { id: nanoid(), entityType: 'schedule', entityId: schedule.id, requestedBy: schedule.created_by || null, notes: `Scheduled run due at ${schedule.next_run_at || timestamp}`, createdAt: timestamp, updatedAt: timestamp }
-  run('INSERT INTO approvals (id, entity_type, entity_id, status, requested_by, approved_by, notes, created_at, updated_at) VALUES (@id, @entityType, @entityId, \'pending\', @requestedBy, NULL, @notes, @createdAt, @updatedAt)', approval)
-  writeLog('info', 'approval', `Approval requested for schedule ${schedule.name}`, { approvalId: approval.id, scheduleId: schedule.id })
-  return approval
+function parse(value, fallback = []) { try { return JSON.parse(value || '') } catch { return fallback } }
+function plusMinutes(minutes) { return new Date(Date.now() + Math.max(1, Number(minutes) || 1) * 60000).toISOString() }
+function policyShape(policy) { return policy && { ...policy, approverTeamIds: parse(policy.approver_team_ids_json), approverUserIds: parse(policy.approver_user_ids_json), escalationUserIds: parse(policy.escalation_user_ids_json), separationOfDuties: Boolean(policy.separation_of_duties), emergencyEnabled: Boolean(policy.emergency_enabled), requireChangeTicket: Boolean(policy.require_change_ticket) } }
+
+export function listApprovalPolicies() { return all(`SELECT p.*, e.name AS environment_name FROM approval_policies p JOIN environments e ON e.id = p.environment_id ORDER BY e.name`).map(policyShape) }
+export function saveApprovalPolicy(payload = {}, actorId) {
+  const environmentId = payload.environmentId
+  if (!get('SELECT id FROM environments WHERE id = ?', [environmentId])) throw new Error('Approval policy environment was not found')
+  const timestamp = nowIso(); const existing = get('SELECT * FROM approval_policies WHERE environment_id = ?', [environmentId]); const teamIds = [...new Set((payload.approverTeamIds || []).filter((id) => get('SELECT id FROM teams WHERE id = ?', [id])))]; const userIds = [...new Set((payload.approverUserIds || []).filter((id) => get('SELECT id FROM users WHERE id = ?', [id])))]; const escalationIds = [...new Set((payload.escalationUserIds || []).filter((id) => get('SELECT id FROM users WHERE id = ?', [id])))]; const eligible = new Set([...userIds, ...teamIds.flatMap((id) => all('SELECT user_id FROM team_members WHERE team_id = ?', [id]).map((row) => row.user_id))]); const quorum = Math.max(1, Math.min(eligible.size || 1, Number(payload.quorum) || 1))
+  run(`INSERT INTO approval_policies (id,name,environment_id,approver_team_ids_json,approver_user_ids_json,quorum,expires_minutes,escalation_minutes,escalation_user_ids_json,separation_of_duties,emergency_enabled,require_change_ticket,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(environment_id) DO UPDATE SET name=excluded.name,approver_team_ids_json=excluded.approver_team_ids_json,approver_user_ids_json=excluded.approver_user_ids_json,quorum=excluded.quorum,expires_minutes=excluded.expires_minutes,escalation_minutes=excluded.escalation_minutes,escalation_user_ids_json=excluded.escalation_user_ids_json,separation_of_duties=excluded.separation_of_duties,emergency_enabled=excluded.emergency_enabled,require_change_ticket=excluded.require_change_ticket,updated_at=excluded.updated_at`, [existing?.id || nanoid(), String(payload.name || 'Environment approval policy').trim(), environmentId, JSON.stringify(teamIds), JSON.stringify(userIds), quorum, Math.max(1, Number(payload.expiresMinutes) || 60), Math.max(1, Number(payload.escalationMinutes) || 30), JSON.stringify(escalationIds), Number(payload.separationOfDuties !== false), Number(Boolean(payload.emergencyEnabled)), Number(Boolean(payload.requireChangeTicket)), existing?.created_by || actorId || null, existing?.created_at || timestamp, timestamp])
+  return policyShape(get('SELECT * FROM approval_policies WHERE environment_id = ?', [environmentId]))
 }
 
-export function listApprovals() {
-  return all(`SELECT a.*, s.name AS schedule_name, u.name AS requester_name, approver.name AS approver_name
-    FROM approvals a LEFT JOIN schedules s ON a.entity_type = 'schedule' AND a.entity_id = s.id
-    LEFT JOIN users u ON u.id = a.requested_by LEFT JOIN users approver ON approver.id = a.approved_by
-    ORDER BY CASE a.status WHEN 'pending' THEN 0 ELSE 1 END, a.created_at DESC`).map((item) => ({ ...item, entityType: item.entity_type, entityId: item.entity_id }))
+function policyForSchedule(schedule) { return policyShape(get('SELECT * FROM approval_policies WHERE environment_id = ?', [schedule.environment_id || 'env-default'])) }
+function eligibleApprovers(policy) { if (!policy) return all("SELECT id FROM users WHERE role IN ('approver', 'admin') AND status = 'active'").map((user) => user.id); return [...new Set([...policy.approverUserIds, ...policy.approverTeamIds.flatMap((id) => all('SELECT user_id FROM team_members WHERE team_id = ?', [id]).map((row) => row.user_id))])] }
+
+export function expireApprovals() {
+  const expired = all("SELECT * FROM approvals WHERE status = 'pending' AND expires_at IS NOT NULL AND expires_at <= ?", [nowIso()])
+  expired.forEach((approval) => { const evidence = { ...parse(approval.evidence_json, {}), outcome: 'default-deny', expiredAt: nowIso() }; run("UPDATE approvals SET status = 'expired', notes = ?, evidence_json = ?, updated_at = ? WHERE id = ?", ['Approval expired and was denied by default.', JSON.stringify(evidence), nowIso(), approval.id]); recordAudit({ actorType: 'system', action: 'approval.expired', resourceType: approval.entity_type, resourceId: approval.entity_id, outcome: 'denied', context: { approvalId: approval.id } }) })
+  const escalation = all("SELECT * FROM approvals WHERE status = 'pending' AND escalates_at IS NOT NULL AND escalates_at <= ? AND escalated_at IS NULL", [nowIso()])
+  escalation.forEach((approval) => { run('UPDATE approvals SET escalated_at = ?, updated_at = ? WHERE id = ?', [nowIso(), nowIso(), approval.id]); writeLog('warning', 'approval', 'Approval workflow escalated', { approvalId: approval.id, entityId: approval.entity_id }); recordAudit({ actorType: 'system', action: 'approval.escalated', resourceType: approval.entity_type, resourceId: approval.entity_id, context: { approvalId: approval.id } }) })
 }
+
+function mapApproval(approval) {
+  const policy = approval.policy_id ? policyShape(get('SELECT * FROM approval_policies WHERE id = ?', [approval.policy_id])) : null
+  const votes = all(`SELECT v.*, u.name AS voter_name, u.email AS voter_email FROM approval_votes v LEFT JOIN users u ON u.id = v.voter_id WHERE v.approval_id = ? ORDER BY v.updated_at`, [approval.id])
+  const eligibleIds = eligibleApprovers(policy)
+  return { ...approval, entityType: approval.entity_type, entityId: approval.entity_id, policy, votes, eligibleApproverIds: eligibleIds, quorum: policy?.quorum || 1, evidence: parse(approval.evidence_json, {}), isEscalated: Boolean(approval.escalated_at) }
+}
+
+export function requestScheduleApproval(schedule) {
+  expireApprovals()
+  const pending = get("SELECT id FROM approvals WHERE entity_type = 'schedule' AND entity_id = ? AND status = 'pending'", [schedule.id]); if (pending) return mapApproval(get('SELECT * FROM approvals WHERE id = ?', [pending.id]))
+  const policy = policyForSchedule(schedule); const emergency = String(schedule.emergency_justification || '').trim(); const ticket = String(schedule.change_ticket || '').trim()
+  if (policy?.requireChangeTicket && !ticket && !(policy.emergencyEnabled && emergency)) throw new Error('This approval policy requires a ServiceNow or Jira change ticket, unless an emergency justification is supplied')
+  if (emergency && !policy?.emergencyEnabled) throw new Error('Emergency execution is not enabled by this approval policy')
+  const timestamp = nowIso(); const approval = { id: nanoid(), entityType: 'schedule', entityId: schedule.id, policyId: policy?.id || null, requestedBy: schedule.created_by || null, notes: `Scheduled run due at ${schedule.next_run_at || timestamp}`, expiresAt: plusMinutes(policy?.expires_minutes || 60), escalatesAt: plusMinutes(policy?.escalation_minutes || 30), changeTicket: ticket || null, emergencyJustification: emergency || null, evidenceJson: JSON.stringify({ requestedAt: timestamp, changeTicket: ticket || null, emergencyJustification: emergency || null, policyId: policy?.id || null }), createdAt: timestamp, updatedAt: timestamp }
+  run('INSERT INTO approvals (id,entity_type,entity_id,status,policy_id,requested_by,approved_by,notes,expires_at,escalates_at,change_ticket,emergency_justification,evidence_json,created_at,updated_at) VALUES (@id,@entityType,@entityId,\'pending\',@policyId,@requestedBy,NULL,@notes,@expiresAt,@escalatesAt,@changeTicket,@emergencyJustification,@evidenceJson,@createdAt,@updatedAt)', approval)
+  writeLog('info', 'approval', `Approval requested for schedule ${schedule.name}`, { approvalId: approval.id, scheduleId: schedule.id, policyId: policy?.id }); recordAudit({ actorId: approval.requestedBy, action: 'approval.requested', resourceType: 'schedule', resourceId: schedule.id, context: { approvalId: approval.id, policyId: policy?.id, expiresAt: approval.expiresAt, changeTicket: ticket || null, emergency: Boolean(emergency) } })
+  return mapApproval(get('SELECT * FROM approvals WHERE id = ?', [approval.id]))
+}
+
+export function requestWorkflowApproval(workflowRunId, nodeId, requestedBy, config = {}) {
+  const existing = get("SELECT * FROM approvals WHERE entity_type = 'workflow' AND entity_id = ? AND status = 'pending'", [`${workflowRunId}:${nodeId}`]); if (existing) return existing
+  const timestamp = nowIso(); const approval = { id: nanoid(), entityType: 'workflow', entityId: `${workflowRunId}:${nodeId}`, requestedBy: requestedBy || null, notes: config.message || 'Workflow approval required', expiresAt: plusMinutes(config.expiresMinutes || 60), escalatesAt: plusMinutes(config.escalationMinutes || 30), evidenceJson: JSON.stringify({ workflowRunId, nodeId, requestedAt: timestamp }), createdAt: timestamp, updatedAt: timestamp }
+  run('INSERT INTO approvals (id,entity_type,entity_id,status,requested_by,notes,expires_at,escalates_at,evidence_json,created_at,updated_at) VALUES (@id,@entityType,@entityId,\'pending\',@requestedBy,@notes,@expiresAt,@escalatesAt,@evidenceJson,@createdAt,@updatedAt)', approval)
+  recordAudit({ actorId: requestedBy, action: 'workflow.approval.requested', resourceType: 'workflow_run', resourceId: workflowRunId, context: { nodeId, approvalId: approval.id } }); return get('SELECT * FROM approvals WHERE id = ?', [approval.id])
+}
+
+export function listApprovals() { expireApprovals(); return all(`SELECT a.*, s.name AS schedule_name, u.name AS requester_name, approver.name AS approver_name FROM approvals a LEFT JOIN schedules s ON a.entity_type = 'schedule' AND a.entity_id = s.id LEFT JOIN users u ON u.id = a.requested_by LEFT JOIN users approver ON approver.id = a.approved_by ORDER BY CASE a.status WHEN 'pending' THEN 0 ELSE 1 END, a.created_at DESC`).map(mapApproval) }
+export function getApprovalEvidence(scheduleId) { const approval = get("SELECT * FROM approvals WHERE entity_type = 'schedule' AND entity_id = ? ORDER BY created_at DESC LIMIT 1", [scheduleId]); if (!approval) return null; const mapped = mapApproval(approval); return { id: mapped.id, status: mapped.status, policy: mapped.policy?.name || 'Default approver role', quorum: mapped.quorum, votes: mapped.votes.map((vote) => ({ voter: vote.voter_name || vote.voter_id, decision: vote.decision, notes: vote.notes, at: vote.updated_at })), changeTicket: mapped.change_ticket, emergencyJustification: mapped.emergency_justification, expiresAt: mapped.expires_at, escalatedAt: mapped.escalated_at, evidence: mapped.evidence } }
 
 export function decideApproval(id, status, userId, notes = '') {
-  if (!['approved', 'rejected'].includes(status)) throw new Error('Approval status must be approved or rejected')
-  const approval = get("SELECT * FROM approvals WHERE id = ? AND status = 'pending'", [id])
-  if (!approval) throw new Error('Pending approval was not found')
-  run('UPDATE approvals SET status = ?, approved_by = ?, notes = ?, updated_at = ? WHERE id = ?', [status, userId, notes || approval.notes, nowIso(), id])
-  writeLog(status === 'approved' ? 'info' : 'warning', 'approval', `Approval ${status}`, { approvalId: id, entityId: approval.entity_id, decidedBy: userId })
-  recordAudit({ actorId: userId, action: `approval.${status}`, resourceType: approval.entity_type, resourceId: approval.entity_id, before: { status: 'pending' }, after: { status, notes: notes || approval.notes }, context: { approvalId: id } })
-  return { ...approval, status, approved_by: userId, notes: notes || approval.notes }
+  if (!['approved', 'rejected'].includes(status)) throw new Error('Approval status must be approved or rejected'); expireApprovals(); const approval = get("SELECT * FROM approvals WHERE id = ? AND status = 'pending'", [id]); if (!approval) throw new Error('Pending approval was not found'); const mapped = mapApproval(approval)
+  if (!mapped.eligibleApproverIds.includes(userId)) throw new Error('You are not an eligible approver for this workflow')
+  if (mapped.policy?.separationOfDuties && approval.requested_by === userId) throw new Error('Separation of duties prevents the requester from approving this workflow')
+  const timestamp = nowIso(); let result
+  transaction(() => { run(`INSERT INTO approval_votes (id,approval_id,voter_id,decision,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(approval_id,voter_id) DO UPDATE SET decision=excluded.decision,notes=excluded.notes,updated_at=excluded.updated_at`, [nanoid(), id, userId, status, String(notes || ''), timestamp, timestamp]); const votes = all('SELECT * FROM approval_votes WHERE approval_id = ?', [id]); const approvedVotes = votes.filter((vote) => vote.decision === 'approved').length; const rejected = votes.some((vote) => vote.decision === 'rejected'); const finalStatus = rejected ? 'rejected' : approvedVotes >= mapped.quorum ? 'approved' : 'pending'; const evidence = { ...mapped.evidence, outcome: finalStatus, quorum: mapped.quorum, approvedVotes, decidedAt: timestamp }; run('UPDATE approvals SET status=?, approved_by=?, notes=?, evidence_json=?, updated_at=? WHERE id=?', [finalStatus, finalStatus === 'approved' ? userId : null, notes || approval.notes, JSON.stringify(evidence), timestamp, id]); result = { finalStatus } })
+  const updated = mapApproval(get('SELECT * FROM approvals WHERE id = ?', [id])); writeLog(result.finalStatus === 'approved' ? 'info' : result.finalStatus === 'rejected' ? 'warning' : 'info', 'approval', `Approval vote ${status}`, { approvalId: id, entityId: approval.entity_id, decidedBy: userId, finalStatus: result.finalStatus }); recordAudit({ actorId: userId, action: `approval.vote.${status}`, resourceType: approval.entity_type, resourceId: approval.entity_id, before: { status: approval.status }, after: { status: updated.status, votes: updated.votes.length }, context: { approvalId: id, quorum: updated.quorum } }); return updated
 }

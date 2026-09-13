@@ -8,7 +8,7 @@ import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
 import { getDashboardSummary } from '../services/dashboardService.js'
 import { buildTargetMachines, executeApprovedSchedule } from '../services/executionService.js'
-import { decideApproval, listApprovals } from '../services/approvalService.js'
+import { decideApproval, listApprovalPolicies, listApprovals, saveApprovalPolicy } from '../services/approvalService.js'
 import { explainDynamicGroup, listGroupMembershipChanges, listGroups, previewDynamicGroup, saveGroup } from '../services/groupService.js'
 import { deleteLibraryEntry, getLibraryAsset, getLibraryPreview, importLibraryFile, listLibrary, listScriptVersions, saveLibraryEntry } from '../services/libraryService.js'
 import { createRunbookRelease, getReleaseArtifact, getReleasePolicy, listRunbookReleases, reviewRunbookRelease, saveReleasePolicy, transitionRunbookRelease } from '../services/runbookReleaseService.js'
@@ -34,6 +34,8 @@ import { deleteCmdbEnrichmentSource, listCmdbEnrichmentRuns, listCmdbEnrichmentS
 import { deleteProject, projectHierarchy, saveEnvironment, saveProject } from '../services/projectService.js'
 import { listAuditEvents, recordAudit, verifyAuditChain } from '../services/auditService.js'
 import { ensureManagedInventorySources, listInventorySourceErrors, listInventorySourceHistory, listInventorySources, syncInventorySource, updateInventorySource } from '../services/inventorySourceService.js'
+import { deleteWorkflowTemplate, getWorkflowRun, listWorkflowRuns, listWorkflowTemplates, saveWorkflowTemplate, startWorkflowRun, validateWorkflowGraph } from '../services/workflowService.js'
+import { aiAssistPreview, confirmRecommendation, listRecommendations } from '../services/recommendationService.js'
 
 const upload = multer({
   dest: path.join(config.uploadsDir),
@@ -131,10 +133,21 @@ export function createRouter() {
   router.get('/api/dashboard', (_req, res) => {
     res.json(getDashboardSummary())
   })
+  router.get('/api/recommendations', requirePermission('dashboard:read'), (_req, res) => res.json(listRecommendations()))
+  router.post('/api/recommendations/:id/ai-preview', requirePermission('dashboard:read'), (req, res) => res.json(aiAssistPreview(req.params.id, req.user.id)))
+  router.post('/api/recommendations/:id/confirm', requirePermission('dashboard:read'), (req, res) => res.json(confirmRecommendation(req.params.id, req.user.id, req.body.note)))
 
   router.get('/api/library', (_req, res) => {
     res.json(listLibrary())
   })
+
+  router.get('/api/workflows', requirePermission('library:read'), (_req, res) => res.json(listWorkflowTemplates()))
+  router.post('/api/workflows/validate', requirePermission('library:manage'), (req, res) => res.json(validateWorkflowGraph(req.body.graph)))
+  router.post('/api/workflows', requirePermission('library:manage'), requireResourcePermission('edit', 'runbook'), (req, res) => res.json(saveWorkflowTemplate(req.body, req.user.id)))
+  router.delete('/api/workflows/:id', requirePermission('library:manage'), requireResourcePermission('edit', 'runbook'), (req, res) => { deleteWorkflowTemplate(req.params.id, req.user.id); res.status(204).end() })
+  router.get('/api/workflows/:id/runs', requirePermission('reports:read'), (req, res) => res.json(listWorkflowRuns(req.params.id)))
+  router.get('/api/workflow-runs/:id', requirePermission('reports:read'), (req, res) => { const workflow = getWorkflowRun(req.params.id); if (!workflow) return res.status(404).json({ error: 'Workflow run was not found' }); return res.json(workflow) })
+  router.post('/api/workflows/:id/runs', requirePermission('runs:execute'), requireResourcePermission('use', 'runbook'), (req, res) => res.status(202).json(startWorkflowRun(req.params.id, req.body.inputs || {}, req.user.id)))
 
   router.post('/api/library', requirePermission('library:manage'), requireResourcePermission('edit', 'runbook'), (req, res) => {
     res.json(saveLibraryEntry(req.body, req.user.id))
@@ -303,6 +316,8 @@ export function createRouter() {
   })
   router.get('/api/approvals', requirePermission('approvals:read'), (_req, res) => res.json(listApprovals()))
   router.post('/api/approvals/:id/decision', requirePermission('approvals:decide'), requireResourcePermission('approve', 'execution'), async (req, res) => { const approval = decideApproval(req.params.id, req.body.status, req.user.id, req.body.notes); const executions = approval.status === 'approved' && approval.entity_type === 'schedule' ? await executeApprovedSchedule(approval.entity_id, req.user.id) : []; return res.json({ approval, executions }) })
+  router.get('/api/approval-policies', requirePermission('approvals:read'), (req, res) => res.json(listApprovalPolicies()))
+  router.post('/api/approval-policies', requirePermission('settings:manage'), requireResourcePermission('admin', 'execution'), (req, res) => res.json(saveApprovalPolicy(req.body, req.user.id)))
 
   router.get('/api/schedules/:id/webhook', (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' })

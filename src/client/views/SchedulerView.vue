@@ -18,7 +18,7 @@ const webhookDetails = ref(null)
 const parameterSets = ref([])
 const parameterSetName = ref('')
 const today = new Date().toISOString().slice(0, 10)
-const scheduleDraft = reactive({ id: '', name: '', cadence: 'daily', startDate: today, runTime: '02:00', intervalDays: 1, weekdays: [1], timezone: 'UTC', enabled: true, requireApproval: false, webhookEnabled: false, scriptIds: [], groupIds: [], machineIds: [], parameters: {} })
+const scheduleDraft = reactive({ id: '', name: '', cadence: 'daily', startDate: today, runTime: '02:00', intervalDays: 1, weekdays: [1], timezone: 'UTC', enabled: true, requireApproval: false, webhookEnabled: false, changeTicket: '', emergencyJustification: '', scriptIds: [], groupIds: [], machineIds: [], parameters: {} })
 const manualRunDraft = reactive({ scriptIds: [], machineIds: [], triggerType: 'manual', retryLimit: 0, timeoutSeconds: 3600, jobTimeoutSeconds: 0 })
 const scripts = computed(() => (store.catalog.library || []).filter((entry) => entry.type === 'script'))
 const groups = computed(() => store.catalog.groups || [])
@@ -29,7 +29,7 @@ const selectedScripts = computed(() => scripts.value.filter((script) => schedule
 
 function resetSchedule() {
   webhookDetails.value = null
-  Object.assign(scheduleDraft, { id: '', name: '', cadence: 'daily', startDate: today, runTime: '02:00', intervalDays: 1, weekdays: [1], timezone: 'UTC', enabled: true, requireApproval: false, webhookEnabled: false, scriptIds: [], groupIds: [], machineIds: [], parameters: {} })
+  Object.assign(scheduleDraft, { id: '', name: '', cadence: 'daily', startDate: today, runTime: '02:00', intervalDays: 1, weekdays: [1], timezone: 'UTC', enabled: true, requireApproval: false, webhookEnabled: false, changeTicket: '', emergencyJustification: '', scriptIds: [], groupIds: [], machineIds: [], parameters: {} })
 }
 
 function toCron() {
@@ -63,6 +63,7 @@ function openSchedule(schedule = null) {
     enabled: schedule.status === 'enabled',
     requireApproval: Boolean(schedule.requireApproval),
     webhookEnabled: Boolean(schedule.webhookEnabled),
+    changeTicket: schedule.changeTicket || '', emergencyJustification: schedule.emergencyJustification || '',
     scriptIds: [...(schedule.scriptIds || [])],
     groupIds: [...(schedule.groupIds || [])],
     machineIds: [...(schedule.machineIds || [])],
@@ -86,6 +87,8 @@ async function saveSchedule() {
     status: scheduleDraft.enabled ? 'enabled' : 'disabled',
     requireApproval: scheduleDraft.requireApproval,
     webhookEnabled: scheduleDraft.webhookEnabled,
+    changeTicket: scheduleDraft.changeTicket,
+    emergencyJustification: scheduleDraft.emergencyJustification,
     scriptIds: scheduleDraft.scriptIds,
     groupIds: scheduleDraft.groupIds,
     machineIds: scheduleDraft.machineIds,

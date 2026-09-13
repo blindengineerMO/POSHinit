@@ -127,6 +127,9 @@ export const useAppStore = defineStore('app', {
       this.dashboard = await this.api('/api/dashboard')
       this.catalog.executions = this.dashboard.recentExecutions
     },
+    async recommendations() { return this.api('/api/recommendations') },
+    async recommendationAiPreview(id) { return this.api(`/api/recommendations/${id}/ai-preview`, { method: 'POST' }) },
+    async confirmRecommendation(id, note = '') { return this.api(`/api/recommendations/${id}/confirm`, { method: 'POST', body: JSON.stringify({ note }) }) },
     async saveLibraryEntry(entry) {
       const saved = await this.api('/api/library', {
         method: 'POST',
@@ -135,6 +138,12 @@ export const useAppStore = defineStore('app', {
       this.catalog.library = await this.api('/api/library')
       return saved
     },
+    async listWorkflows() { return this.api('/api/workflows') },
+    async saveWorkflow(workflow) { return this.api('/api/workflows', { method: 'POST', body: JSON.stringify(workflow) }) },
+    async deleteWorkflow(id) { return this.api(`/api/workflows/${id}`, { method: 'DELETE' }) },
+    async validateWorkflow(graph) { return this.api('/api/workflows/validate', { method: 'POST', body: JSON.stringify({ graph }) }) },
+    async runWorkflow(id, inputs = {}) { return this.api(`/api/workflows/${id}/runs`, { method: 'POST', body: JSON.stringify({ inputs }) }) },
+    async workflowRuns(id) { return this.api(`/api/workflows/${id}/runs`) },
     async deleteLibraryEntry(id) {
       await this.api(`/api/library/${id}`, { method: 'DELETE' })
       this.catalog.library = await this.api('/api/library')
@@ -189,6 +198,8 @@ export const useAppStore = defineStore('app', {
     async deleteProject(id) { return this.api(`/api/projects/${id}`, { method: 'DELETE' }) },
     async listApprovals() { return this.api('/api/approvals') },
     async decideApproval(id, status, notes = '') { const result = await this.api(`/api/approvals/${id}/decision`, { method: 'POST', body: JSON.stringify({ status, notes }) }); await this.bootstrap(); return result },
+    async listApprovalPolicies() { return this.api('/api/approval-policies') },
+    async saveApprovalPolicy(policy) { return this.api('/api/approval-policies', { method: 'POST', body: JSON.stringify(policy) }) },
     async getScheduleWebhook(id) {
       return this.api(`/api/schedules/${id}/webhook`)
     },

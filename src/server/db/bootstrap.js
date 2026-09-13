@@ -649,6 +649,24 @@ function ensureApprovalWorkflowSchema() {
   `)
 }
 
+function ensureWorkflowSchema() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_templates (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, project_id TEXT NOT NULL DEFAULT 'project-default', environment_id TEXT NOT NULL DEFAULT 'env-default', graph_json TEXT NOT NULL DEFAULT '{"nodes":[],"edges":[]}', created_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY, template_id TEXT NOT NULL, status TEXT NOT NULL, inputs_json TEXT NOT NULL DEFAULT '{}', outputs_json TEXT NOT NULL DEFAULT '{}', requested_by TEXT, started_at TEXT NOT NULL, finished_at TEXT, error_message TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      FOREIGN KEY (template_id) REFERENCES workflow_templates(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS workflow_node_runs (
+      id TEXT PRIMARY KEY, workflow_run_id TEXT NOT NULL, node_id TEXT NOT NULL, node_type TEXT NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 1, input_json TEXT NOT NULL DEFAULT '{}', output_json TEXT NOT NULL DEFAULT '{}', error_message TEXT, approval_id TEXT, started_at TEXT, finished_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(workflow_run_id, node_id), FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS workflow_runs_template_idx ON workflow_runs(template_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS workflow_node_runs_run_idx ON workflow_node_runs(workflow_run_id, created_at);
+  `)
+}
+
 function ensureDynamicGroupSchema() {
   const columns = db.prepare('PRAGMA table_info(deployment_groups)').all().map((column) => column.name)
   if (!columns.includes('group_type')) db.exec("ALTER TABLE deployment_groups ADD COLUMN group_type TEXT NOT NULL DEFAULT 'manual'")
@@ -1063,6 +1081,7 @@ export function initializeDatabase() {
   ensureScriptParameterSchema()
   ensureRunbookReleaseSchema()
   ensureApprovalWorkflowSchema()
+  ensureWorkflowSchema()
   ensureDynamicGroupSchema()
   seedSettings()
   seedDemoData()

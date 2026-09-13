@@ -1,11 +1,20 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import NeonPanel from '../components/common/NeonPanel.vue'
+import FloatingWindow from '../components/common/FloatingWindow.vue'
 import OperationsChart from '../components/dashboard/OperationsChart.vue'
 import WidgetBoard from '../components/dashboard/WidgetBoard.vue'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
+const recommendations = ref([])
+const recommendationsOpen = ref(false)
+const aiPreview = ref(null)
+const confirmationNote = ref('')
+async function refreshRecommendations() { recommendations.value = await store.recommendations() }
+async function previewAi(recommendation) { aiPreview.value = await store.recommendationAiPreview(recommendation.id) }
+async function confirm(recommendation) { await store.confirmRecommendation(recommendation.id, confirmationNote.value); confirmationNote.value = ''; await refreshRecommendations() }
+onMounted(refreshRecommendations)
 
 const metrics = computed(() => [
   { label: 'Scripts', value: store.dashboard.counts.scripts || 0, icon: 'mdi-script-text-outline' },
@@ -56,6 +65,8 @@ const marketComparableFeatures = [
 
     <WidgetBoard :dashboard="store.dashboard" />
 
+    <NeonPanel subtitle="Deterministic Guardrails" title="Operational Recommendations"><template #actions><v-btn size="small" class="glass-button" prepend-icon="mdi-lightbulb-on-outline" @click="recommendationsOpen = true">Review {{ recommendations.length }}</v-btn></template><div class="recommendation-strip"><article v-for="recommendation in recommendations.slice(0, 3)" :key="recommendation.id" :class="recommendation.severity"><v-icon :icon="recommendation.severity === 'high' ? 'mdi-alert-octagon-outline' : 'mdi-alert-outline'"/><div><strong>{{ recommendation.title }}</strong><span>{{ recommendation.summary }}</span></div></article><p v-if="!recommendations.length" class="muted">No deterministic operational risks are currently detected.</p></div></NeonPanel>
+
     <div class="content-grid">
       <NeonPanel class="span-6" subtitle="Research Additions" title="Market Comparable Features">
         <div class="list-block">
@@ -83,6 +94,7 @@ const marketComparableFeatures = [
         </div>
       </NeonPanel>
     </div>
+    <FloatingWindow v-model="recommendationsOpen" title="Recommendation Review" :width="780" :start-x="245" :start-y="90"><div class="recommendation-list"><header><div><p class="section-eyebrow">Evidence Before Automation</p><h3>Deterministic findings only</h3></div><v-btn size="small" variant="text" @click="refreshRecommendations">Refresh</v-btn></header><article v-for="recommendation in recommendations" :key="recommendation.id" :class="['recommendation-card', recommendation.severity]"><div><v-chip size="x-small" :color="recommendation.severity === 'high' ? 'error' : recommendation.severity === 'medium' ? 'warning' : 'info'">{{ recommendation.severity }}</v-chip><strong>{{ recommendation.title }}</strong><p>{{ recommendation.summary }}</p><small class="mono">{{ recommendation.source }} · {{ recommendation.generatedAt }}</small></div><div class="recommendation-actions"><v-btn size="x-small" variant="text" @click="previewAi(recommendation)">AI assist preview</v-btn><v-btn size="x-small" class="glass-button" @click="confirm(recommendation)">Confirm review</v-btn></div></article><p v-if="!recommendations.length" class="muted">No recommendations available.</p><v-text-field v-model="confirmationNote" label="Human confirmation note (optional)" density="compact"/><v-alert v-if="aiPreview" type="info" variant="tonal" density="compact"><strong>{{ aiPreview.status }}</strong> · {{ aiPreview.provenance.redaction }} No provider is called and no action is applied from this preview.</v-alert></div></FloatingWindow>
   </div>
 </template>
 
@@ -138,6 +150,7 @@ const marketComparableFeatures = [
 }
 
 .health-stack { display:grid; gap:12px; padding:18px 16px; }.health-stack div { display:flex; justify-content:space-between; align-items:baseline; }.health-stack span { color:var(--muted); font-family:'Share Tech Mono',monospace; font-size:.66rem; letter-spacing:.1em; }.health-stack strong { color:var(--cyan); font-family:'Share Tech Mono',monospace; font-size:1.35rem; }
+.recommendation-strip,.recommendation-list{display:grid;gap:10px;padding:14px}.recommendation-strip article{display:flex;gap:10px;padding:10px;border:1px solid var(--line);background:rgba(40,211,255,.04)}.recommendation-strip article.high{border-left-color:var(--danger,#ff5a82)}.recommendation-strip article.medium{border-left-color:var(--amber)}.recommendation-strip div{display:grid;gap:3px}.recommendation-strip strong,.recommendation-card strong{font-size:.8rem}.recommendation-strip span,.recommendation-card p,.recommendation-card small{color:var(--muted);font-size:.73rem}.recommendation-list>header,.recommendation-actions{display:flex;justify-content:space-between;align-items:center;gap:8px}.recommendation-list h3{margin:2px 0}.recommendation-card{display:flex;justify-content:space-between;gap:14px;padding:12px;border:1px solid var(--line);background:rgba(5,10,20,.56)}.recommendation-card>div:first-child{display:grid;gap:6px}.recommendation-card p{margin:0}.recommendation-actions{align-items:flex-start;flex-direction:column;min-width:120px}
 
 @media (max-width: 1100px) {
   .hero-body {

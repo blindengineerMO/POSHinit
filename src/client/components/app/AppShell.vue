@@ -11,6 +11,7 @@ const items = [
   { to: '/editor', icon: 'mdi-console-line', label: 'Script Studio' },
     { to: '/scheduler', icon: 'mdi-calendar-clock-outline', label: 'Run Planner' },
     { to: '/approvals', icon: 'mdi-shield-check-outline', label: 'Approval Queue', roles: ['admin', 'approver'] },
+  { to: '/workflows', icon: 'mdi-graph-outline', label: 'Visual Workflows', roles: ['admin', 'operator'] },
   { to: '/reports', icon: 'mdi-pulse', label: 'Run Ledger' },
   { to: '/inventory', icon: 'mdi-server-network-outline', label: 'Node Inventory' },
   { to: '/vault', icon: 'mdi-key-variant', label: 'Secret Vault', roles: ['admin', 'operator'] },

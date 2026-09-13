@@ -8,7 +8,7 @@ import { computeNextRun, getDueSchedules, markScheduleExecuted } from './schedul
 import { injectSecretTemplates } from './secretInjectionService.js'
 import { sendExecutionAlert } from './notificationService.js'
 import { dispatchNotificationEvent } from './notificationPolicyService.js'
-import { requestScheduleApproval } from './approvalService.js'
+import { getApprovalEvidence, requestScheduleApproval } from './approvalService.js'
 import { syncDynamicGroups } from './groupService.js'
 import { redactText } from './outputRedactionService.js'
 import { resolveParameterValues } from './parameterService.js'
@@ -211,6 +211,7 @@ export async function runExecution({ triggerType, scheduleId = null, scriptId, m
             ? 'Run exceeded its configured timeout.'
           : 'Run failed. Inspect stderr and full log stream.',
   }
+  if (scheduleId) report.approvalEvidence = getApprovalEvidence(scheduleId)
 
   run(
     `UPDATE executions

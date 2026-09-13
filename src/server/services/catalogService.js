@@ -55,7 +55,7 @@ export function getCatalog(user = {}) {
     machineIds: JSON.parse(group.machine_ids_json).filter(Boolean),
   }))
   const schedules = all(
-    `SELECT s.id, s.name, s.cron_expression, s.timezone, s.mode, s.run_at, s.status, s.require_approval, s.webhook_enabled, s.project_id, s.environment_id,
+    `SELECT s.id, s.name, s.cron_expression, s.timezone, s.mode, s.run_at, s.status, s.require_approval, s.change_ticket, s.emergency_justification, s.webhook_enabled, s.project_id, s.environment_id,
             s.next_run_at, s.last_run_at, s.created_by, s.created_at, s.updated_at,
             COALESCE(json_group_array(DISTINCT ss.script_id), '[]') AS script_ids_json,
             COALESCE(json_group_array(DISTINCT CASE WHEN st.target_type = 'group' THEN st.target_id END), '[]') AS group_ids_json,
@@ -68,6 +68,7 @@ export function getCatalog(user = {}) {
   ).map((schedule) => ({
     ...schedule,
     requireApproval: Boolean(schedule.require_approval),
+    changeTicket: schedule.change_ticket || '', emergencyJustification: schedule.emergency_justification || '',
     webhookEnabled: Boolean(schedule.webhook_enabled),
     scriptIds: JSON.parse(schedule.script_ids_json).filter(Boolean),
     groupIds: JSON.parse(schedule.group_ids_json).filter(Boolean),

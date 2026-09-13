@@ -272,6 +272,24 @@ Administrators configure each environment's **Release Policy** from **Projects**
 
 Protected-environment dispatches are rejected unless every selected script has a currently `released` signed artifact for that environment. Saving a material script edit moves its mutable working copy back to `draft`, so it cannot silently replace the approved content. Lifecycle submissions, reviews, promotions, and state changes are recorded in the immutable audit trail. Use `GET /api/library/releases/:id/artifact` to retrieve an artifact's hash, signature, content, and verification result for external evidence workflows.
 
+### Approval Workflows
+
+The **Approval Queue** is policy-driven rather than a single-operator gate. Administrators open **Approval Policy** to configure one workflow per environment: approver teams and direct approvers, required quorum, expiration/default-deny period, escalation threshold and recipients, separation of duties, mandatory ServiceNow/Jira change tickets, and whether an emergency justification is permitted.
+
+Each scheduled request captures its policy, ticket or emergency reason, expiry/escalation timestamps, and individual reviewer decisions. Only eligible users can vote; with separation of duties enabled, the requester cannot approve their own work. A rejected vote denies the request, while approvals stay pending until quorum is met. Expired requests are automatically marked `expired` and denied, and escalations are recorded as audit and operational log events. The final execution report includes approval evidence with the policy, quorum, votes, ticket, emergency justification, and escalation/expiry metadata.
+
+### Visual Workflows
+
+Use **Visual Workflows** to compose reusable DAG templates in a floating designer. The palette supports runbook dispatches, managed inventory synchronization, conditions, parallel joins, waits, approval gates, notifications, retry controls, and rollback/compensation markers. Each node can define configuration and input mappings using `{{inputs.key}}` or prior workflow context; runbook nodes select scripts, targets, and queue retry policy directly.
+
+The server rejects broken or cyclic graphs before save/run. At runtime it executes all dependency-ready nodes concurrently, waits for durable dispatch completion, records every node's input, output, attempt, status, and error, and preserves the aggregate output in the workflow run ledger. Approval nodes create normal Approval Queue records and respect the existing quorum, escalation, and default-deny controls. Open a template's **Run** window to provide JSON inputs and inspect recent workflow-run node evidence.
+
+### Operational Recommendations
+
+The Command Deck includes a deterministic **Operational Recommendations** panel. It evaluates persisted operational evidence only and surfaces stable, severity-ranked findings for failing credentials, stale dynamic groups, repeated target failures, unused secrets, consistently slow runbooks, workflow runbook nodes without explicit timeouts, and broad schedule target groups. Each finding includes its rule source, redacted evidence, and a direct operator destination; it never changes configuration or runs a command automatically.
+
+The floating **Recommendation Review** window records a human confirmation in the immutable audit trail. Its **AI assist preview** intentionally makes no provider request: it returns `opt-in-required`, redacts output/evidence text, stamps deterministic provenance and generation time, and states that human confirmation is mandatory. This establishes the privacy and control boundary for a future opt-in AI provider integration without silently transmitting secrets, output, or inventory details.
+
 ### Immutable Audit Trail
 
 POSHinit records append-only audit events in a hash chain. Database triggers reject updates and deletes, while the audit API verifies the chain head and reports an invalid sequence if integrity cannot be established. Entries capture before/after metadata for supported changes, permission allow/deny decisions, approvals, external secret access metadata, worker and target identities for execution, and output-export events. Secret values and output contents are never recorded in audit context.
