@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import NeonPanel from '../components/common/NeonPanel.vue'
 import FloatingWindow from '../components/common/FloatingWindow.vue'
 import OperationsChart from '../components/dashboard/OperationsChart.vue'
@@ -11,10 +11,13 @@ const recommendations = ref([])
 const recommendationsOpen = ref(false)
 const aiPreview = ref(null)
 const confirmationNote = ref('')
+const operations = ref(null)
+async function refreshOperations() { operations.value = await store.operationsDashboard() }
 async function refreshRecommendations() { recommendations.value = await store.recommendations() }
 async function previewAi(recommendation) { aiPreview.value = await store.recommendationAiPreview(recommendation.id) }
 async function confirm(recommendation) { await store.confirmRecommendation(recommendation.id, confirmationNote.value); confirmationNote.value = ''; await refreshRecommendations() }
-onMounted(refreshRecommendations)
+onMounted(async () => { await Promise.all([refreshRecommendations(), refreshOperations()]) })
+watch(() => store.activeScope, refreshOperations, { deep: true })
 
 const metrics = computed(() => [
   { label: 'Scripts', value: store.dashboard.counts.scripts || 0, icon: 'mdi-script-text-outline' },
@@ -57,6 +60,20 @@ const marketComparableFeatures = [
         </div>
       </div>
     </NeonPanel>
+
+    <section v-if="operations" class="ops-grid">
+      <article class="ops-tile"><v-icon icon="mdi-format-list-bulleted-square"/><span>QUEUE</span><strong>{{ operations.queue.queued }}</strong><small>{{ operations.queue.running }} running</small></article>
+      <article class="ops-tile"><v-icon icon="mdi-server-network"/><span>WORKERS</span><strong>{{ operations.workers.online }}/{{ operations.workers.total }}</strong><small>{{ operations.workers.draining }} draining</small></article>
+      <article class="ops-tile"><v-icon icon="mdi-check-decagram-outline"/><span>SUCCESS RATE</span><strong>{{ operations.success.rate }}%</strong><small>{{ operations.success.total }} scoped runs</small></article>
+      <article class="ops-tile"><v-icon icon="mdi-timer-sand"/><span>DURATION P95</span><strong>{{ operations.duration.p95 }}s</strong><small>P50 {{ operations.duration.p50 }}s · P99 {{ operations.duration.p99 }}s</small></article>
+      <article class="ops-tile" :class="operations.inventory.drifted ? 'attention' : ''"><v-icon icon="mdi-radar"/><span>INVENTORY DRIFT</span><strong>{{ operations.inventory.drifted }}</strong><small>{{ operations.inventory.total }} scoped nodes</small></article>
+      <article class="ops-tile" :class="operations.approvals.pending ? 'attention' : ''"><v-icon icon="mdi-shield-clock-outline"/><span>APPROVAL BACKLOG</span><strong>{{ operations.approvals.pending }}</strong><small>{{ operations.notifications.healthy ? 'Notifications healthy' : `${operations.notifications.failures24h} alert failures / 24h` }}</small></article>
+    </section>
+
+    <div v-if="operations" class="content-grid">
+      <NeonPanel class="span-6" subtitle="Failure Concentration" title="Targets Requiring Attention"><div class="failure-list"><article v-for="target in operations.targetFailures" :key="target.name"><v-icon icon="mdi-alert-outline" color="warning"/><strong>{{ target.name }}</strong><span>{{ target.failures }} failed runs in scope</span></article><p v-if="!operations.targetFailures.length" class="muted">No failed target executions in the active project/environment.</p></div></NeonPanel>
+      <NeonPanel class="span-6" subtitle="Scope-Aware Signals" title="Control Plane Health"><div class="health-stack"><div><span>EXECUTION SUCCESS</span><strong>{{ operations.success.rate }}%</strong></div><v-progress-linear :model-value="operations.success.rate" color="secondary" height="7" rounded="0" /><div><span>INVENTORY FRESHNESS</span><strong>{{ operations.inventory.total ? Math.round((operations.inventory.total - operations.inventory.drifted) * 100 / operations.inventory.total) : 100 }}%</strong></div><v-progress-linear :model-value="operations.inventory.total ? (operations.inventory.total - operations.inventory.drifted) * 100 / operations.inventory.total : 100" color="primary" height="7" rounded="0" /><v-btn size="small" variant="text" prepend-icon="mdi-refresh" @click="refreshOperations">Refresh operational signals</v-btn></div></NeonPanel>
+    </div>
 
     <div class="content-grid">
       <NeonPanel class="span-8" subtitle="Live Execution Signal" title="Automation Reliability"><template #actions><v-chip color="secondary" variant="tonal">last 8 runs</v-chip></template><OperationsChart :executions="store.dashboard.recentExecutions || []" /></NeonPanel>
@@ -134,6 +151,8 @@ const marketComparableFeatures = [
   color: #fff0ff;
 }
 
+.ops-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; }.ops-tile { display:grid; gap:4px; min-height:116px; padding:13px; border:1px solid var(--line); background:linear-gradient(145deg,rgba(40,211,255,.08),rgba(88,28,130,.12)); }.ops-tile.attention { border-color:rgba(255,185,72,.65); }.ops-tile .v-icon { color:var(--cyan); }.ops-tile span { color:var(--muted); font:10px 'Share Tech Mono',monospace; letter-spacing:.08em; }.ops-tile strong { color:var(--text); font:700 1.45rem Rajdhani,sans-serif; }.ops-tile small { color:var(--muted); font-size:.7rem; }.failure-list { display:grid; gap:2px; padding:14px; }.failure-list article { display:grid; grid-template-columns:auto 1fr auto; gap:9px; align-items:center; padding:10px; border-bottom:1px solid var(--line); }.failure-list span { color:var(--muted); font-size:.73rem; }
+
 .list-block {
   display: grid;
   gap: 12px;
@@ -156,5 +175,7 @@ const marketComparableFeatures = [
   .hero-body {
     grid-template-columns: 1fr;
   }
+  .ops-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
+@media (max-width: 620px) { .ops-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 </style>

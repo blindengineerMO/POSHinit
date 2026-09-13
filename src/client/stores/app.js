@@ -127,6 +127,7 @@ export const useAppStore = defineStore('app', {
       this.dashboard = await this.api('/api/dashboard')
       this.catalog.executions = this.dashboard.recentExecutions
     },
+    async operationsDashboard() { return this.api(`/api/operations/dashboard?projectId=${encodeURIComponent(this.activeScope.projectId || '')}&environmentId=${encodeURIComponent(this.activeScope.environmentId || '')}`) },
     async recommendations() { return this.api('/api/recommendations') },
     async recommendationAiPreview(id) { return this.api(`/api/recommendations/${id}/ai-preview`, { method: 'POST' }) },
     async confirmRecommendation(id, note = '') { return this.api(`/api/recommendations/${id}/confirm`, { method: 'POST', body: JSON.stringify({ note }) }) },

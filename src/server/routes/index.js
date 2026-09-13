@@ -6,7 +6,7 @@ import { all, get } from '../db/client.js'
 import { requireAuth, requirePermission, requireResourcePermission } from '../middleware/auth.js'
 import { login, recordLogout } from '../services/authService.js'
 import { getCatalog } from '../services/catalogService.js'
-import { getDashboardSummary } from '../services/dashboardService.js'
+import { getDashboardSummary, getOperationsDashboard } from '../services/dashboardService.js'
 import { buildTargetMachines, executeApprovedSchedule } from '../services/executionService.js'
 import { decideApproval, listApprovalPolicies, listApprovals, saveApprovalPolicy } from '../services/approvalService.js'
 import { explainDynamicGroup, listGroupMembershipChanges, listGroups, previewDynamicGroup, saveGroup } from '../services/groupService.js'
@@ -153,6 +153,7 @@ export function createRouter() {
   router.get('/api/dashboard', (_req, res) => {
     res.json(getDashboardSummary())
   })
+  router.get('/api/operations/dashboard', requirePermission('dashboard:read'), (req, res) => res.json(getOperationsDashboard({ projectId: req.query.projectId || '', environmentId: req.query.environmentId || '' })))
   router.get('/api/recommendations', requirePermission('dashboard:read'), (_req, res) => res.json(listRecommendations()))
   router.post('/api/recommendations/:id/ai-preview', requirePermission('dashboard:read'), (req, res) => res.json(aiAssistPreview(req.params.id, req.user.id)))
   router.post('/api/recommendations/:id/confirm', requirePermission('dashboard:read'), (req, res) => res.json(confirmRecommendation(req.params.id, req.user.id, req.body.note)))

@@ -168,6 +168,12 @@ Administrators can inspect the runtime health summary at `GET /api/reliability/s
 - Generated artifacts support `CSV`, Excel-compatible `XLS`, and native `PDF` exports through `GET /api/reports/artifacts/{id}/export/{csv|xlsx|pdf}`. `GET /api/reports/artifacts/{id}/evidence` retrieves the associated report metrics, approval records, dispatch-event index, and audit-chain verification as a durable evidence bundle.
 - API consumers can use `GET /api/reports/dashboard`, `GET/POST /api/reports/schedules`, `GET /api/reports/artifacts`, and `POST /api/reports/generate`. Report exports and evidence bundles contain redacted persisted evidence only; no vault secret values are included.
 
+### Operations Dashboard
+
+The **Command Deck** is a scope-aware operations dashboard rather than a static landing page. It reports durable queue depth and active targets, enrolled-worker health and drain count, execution success rate, P50/P95/P99 duration, failed-target concentration, inventory drift, pending approval backlog, and the last 24-hour notification failure state. The active project/environment selected in **Projects** filters the execution, queue, inventory, and scheduled-approval signals; the dashboard resolves and displays the parent organization (tenant) from that project scope.
+
+Use `GET /api/operations/dashboard?projectId={id}&environmentId={id}` for the same API-first operational summary. It contains a normalized scope descriptor plus the raw metrics needed by external dashboards, and does not expose command output or secret material.
+
 ### Worker Control Plane
 
 POSHinit separates the browser/API control plane from private-network execution through a versioned, outbound-only worker protocol. The built-in executor continues to process unplaced work; dispatches with a `workerPoolId` are reserved for enrolled workers and cannot be claimed by the API process. This allows a worker inside a protected network to connect to WinRM, PowerShell Remoting, or SSH targets without exposing those target endpoints to the POSHinit web server.
