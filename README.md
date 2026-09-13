@@ -290,6 +290,12 @@ The Command Deck includes a deterministic **Operational Recommendations** panel.
 
 The floating **Recommendation Review** window records a human confirmation in the immutable audit trail. Its **AI assist preview** intentionally makes no provider request: it returns `opt-in-required`, redacts output/evidence text, stamps deterministic provenance and generation time, and states that human confirmation is mandatory. This establishes the privacy and control boundary for a future opt-in AI provider integration without silently transmitting secrets, output, or inventory details.
 
+### Safe Remote Sessions
+
+**Remote Session Control** gives administrators a policy for interactive CLI sessions. The policy controls redacted transcript retention (30 days by default), recording hooks, clipboard allowance, upload/download guards, and optional brokered SSH/RDP URL templates. Every terminal connection, command, streamed stdout/stderr event, cancellation, disconnect, clipboard event, and transfer guard decision is retained as ordered session evidence when recording is enabled. Transcript content runs through the same output-redaction controls used for execution logs.
+
+Clipboard paste is detected in the terminal client and is either blocked or audit-recorded with metadata only; clipboard contents are not retained. Upload and download are deny-by-default and enforced at the server guard endpoint. Enabling either guard does not itself move a file: a brokered transfer provider must perform the transfer. Optional RDP/SSH broker URLs support `{{target}}` and `{{machineId}}` placeholders and deliberately never contain a credential value. Expired transcripts are pruned according to the configured retention policy.
+
 ### Immutable Audit Trail
 
 POSHinit records append-only audit events in a hash chain. Database triggers reject updates and deletes, while the audit API verifies the chain head and reports an invalid sequence if integrity cannot be established. Entries capture before/after metadata for supported changes, permission allow/deny decisions, approvals, external secret access metadata, worker and target identities for execution, and output-export events. Secret values and output contents are never recorded in audit context.

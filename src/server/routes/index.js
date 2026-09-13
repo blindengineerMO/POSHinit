@@ -15,7 +15,7 @@ import { createRunbookRelease, getReleaseArtifact, getReleasePolicy, listRunbook
 import { searchLogs } from '../services/logService.js'
 import { listMachines, saveCredential, saveMachine, testMachineCandidate, testMachineConnection, uploadAsset } from '../services/machineService.js'
 import { getSubnetScan, importSubnetScan, startSubnetScan } from '../services/subnetScanService.js'
-import { getSettings, saveAuditSettings, saveEntraSettings, saveNotificationSettings, saveSecretProviderSettings, saveSettings } from '../services/settingsService.js'
+import { getRemoteSessionSettings, getSettings, saveAuditSettings, saveEntraSettings, saveNotificationSettings, saveRemoteSessionSettings, saveSecretProviderSettings, saveSettings } from '../services/settingsService.js'
 import { getScheduleWebhook, getScheduleWebhookStatus, getWebhookSchedule, listSchedules, saveSchedule } from '../services/scheduleService.js'
 import { listTeams, saveTeam } from '../services/teamService.js'
 import { listUsers, saveUser } from '../services/userService.js'
@@ -23,7 +23,7 @@ import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, im
 import { discoverAzureArcMachines, importAzureArcSelection, saveAzureArcSettings } from '../services/azureArcService.js'
 import { discoverProxmoxMachines, importProxmoxSelection, saveProxmoxSettings } from '../services/proxmoxService.js'
 import { validatePowerShell } from '../services/powershellService.js'
-import { cancelTerminalCommand, connectTerminal, disconnectTerminal, runTerminalCommand, streamTerminalCommand } from '../services/terminalService.js'
+import { auditTerminalClipboard, brokeredSessionLaunch, cancelTerminalCommand, connectTerminal, disconnectTerminal, listTerminalTranscript, runTerminalCommand, streamTerminalCommand, terminalTransferGuard } from '../services/terminalService.js'
 import { encryptSecret } from '../utils/crypto.js'
 import { beginEntraSignIn, consumeEnterpriseTicket, enterpriseFailureRedirect, enterpriseSignInFailure, entraStatus, finishEntraSignIn } from '../services/entraService.js'
 import { deleteNotificationPolicy, listNotificationPolicies, saveNotificationPolicy, setNotificationPolicyEnabled, testNotificationPolicy } from '../services/notificationPolicyService.js'
@@ -270,6 +270,10 @@ export function createRouter() {
     disconnectTerminal(req.params.sessionId)
     res.status(204).end()
   })
+  router.get('/api/terminal/:sessionId/transcript', requirePermission('runs:execute'), (req, res) => res.json(listTerminalTranscript(req.params.sessionId)))
+  router.post('/api/terminal/:sessionId/clipboard', requirePermission('runs:execute'), (req, res) => res.json(auditTerminalClipboard(req.params.sessionId, req.body.direction, req.body.length)))
+  router.post('/api/terminal/:sessionId/transfer/:direction', requirePermission('runs:execute'), (req, res) => res.json(terminalTransferGuard(req.params.sessionId, req.params.direction)))
+  router.post('/api/machines/:id/broker/:kind', requirePermission('runs:execute'), requireResourcePermission('use', 'inventory'), (req, res) => res.json(brokeredSessionLaunch(req.params.id, req.params.kind, req.user.id)))
 
   router.post('/api/credentials', requirePermission('vault:manage'), requireResourcePermission('edit', 'credential'), (req, res) => {
     res.json(
@@ -425,6 +429,9 @@ export function createRouter() {
   router.post('/api/inventory-sources/:id/sync', async (req, res, next) => {
     try { assertResourcePermission(req.user, 'admin', 'integration', '*'); res.json(await syncInventorySource(req.params.id)) } catch (error) { next(error) }
   })
+
+  router.get('/api/settings/remote-sessions', requirePermission('settings:manage'), (req, res) => res.json(getRemoteSessionSettings()))
+  router.post('/api/settings/remote-sessions', requirePermission('settings:manage'), (req, res) => res.json(saveRemoteSessionSettings(req.body)))
 
   router.post('/api/settings/:key', (req, res) => {
     if (req.params.key === 'runtime') {

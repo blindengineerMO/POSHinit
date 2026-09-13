@@ -36,6 +36,7 @@ const terminalSession = ref(null)
 const terminalConnecting = ref(false)
 const terminalRunning = ref(false)
 const terminalHost = ref(null)
+const terminalTranscript = ref([])
 let terminal
 let fitAddon
 let resizeObserver
@@ -256,6 +257,7 @@ async function openTerminal(machine) {
   try {
     const connected = await store.connectTerminal(machine.id)
     terminalSession.value = connected
+    terminalTranscript.value = []
     writeTerminal(`\x1b[32mConnected via ${connected.transport}.\x1b[0m\r\n${connected.output || ''}`)
     promptTerminal()
   } catch (error) {
@@ -301,6 +303,7 @@ function createTerminal() {
     if (!terminalSession.value || terminalConnecting.value) return
     if (data === '\r') { submitTerminalCommand(); return }
     if (data === '\u007f') { if (commandBuffer) { commandBuffer = commandBuffer.slice(0, -1); terminal.write('\b \b') } return }
+    if (data.includes('\x1b[200~')) { const pasted = data.replace(/\x1b\[200~|\x1b\[201~/g, ''); if (!terminalSession.value.policy?.allowClipboard) { writeTerminal('\x1b[31m[clipboard paste blocked by policy]\x1b[0m'); return } void store.auditTerminalClipboard(terminalSession.value.id, 'paste', pasted.length); commandBuffer += pasted; terminal.write(pasted); return }
     if (data >= ' ' && data !== '\u007f') { commandBuffer += data; terminal.write(data) }
   })
   terminal.focus()
@@ -313,7 +316,7 @@ function closeTerminal() {
   terminal = null
   resizeObserver = null
   terminalSession.value = null
-  if (sessionId) void store.disconnectTerminal(sessionId).catch(() => {})
+  if (sessionId) { void store.terminalTranscript(sessionId).then((events) => { terminalTranscript.value = events }).catch(() => {}); void store.disconnectTerminal(sessionId).catch(() => {}) }
 }
 onBeforeUnmount(closeTerminal)
 </script>
@@ -461,7 +464,7 @@ onBeforeUnmount(closeTerminal)
         </v-window>
       </div>
     </FloatingWindow>
-    <FloatingWindow v-model="terminalDialog" :title="`Remote CLI${terminalSession ? ` · ${terminalSession.transport}` : ''}`" :width="760" :start-x="270" :start-y="80"><div class="terminal-window"><div class="terminal-status"><v-icon :icon="terminalSession ? 'mdi-lan-connect' : 'mdi-lan-pending'"/><span>{{ terminalRunning ? 'Command running · output is streaming' : terminalSession ? `Connected through ${terminalSession.transport} · press Enter to run commands` : terminalConnecting ? 'Establishing remote session...' : 'Connection unavailable' }}</span><v-btn v-if="terminalRunning" size="x-small" color="warning" variant="text" @click="cancelTerminalCommand">Cancel Command</v-btn><v-btn size="x-small" variant="text" @click="terminalDialog = false">Disconnect</v-btn></div><div ref="terminalHost" class="xterm-host"/></div></FloatingWindow>
+    <FloatingWindow v-model="terminalDialog" :title="`Remote CLI${terminalSession ? ` · ${terminalSession.transport}` : ''}`" :width="760" :start-x="270" :start-y="80"><div class="terminal-window"><div class="terminal-status"><v-icon :icon="terminalSession ? 'mdi-lan-connect' : 'mdi-lan-pending'"/><span>{{ terminalRunning ? 'Command running · output is streaming' : terminalSession ? `Connected through ${terminalSession.transport} · press Enter to run commands` : terminalConnecting ? 'Establishing remote session...' : 'Connection unavailable' }}</span><v-btn v-if="terminalRunning" size="x-small" color="warning" variant="text" @click="cancelTerminalCommand">Cancel Command</v-btn><v-btn size="x-small" variant="text" @click="terminalDialog = false">Disconnect</v-btn></div><div v-if="terminalSession" class="terminal-policy"><span>Recording {{ terminalSession.policy?.recordSessions ? 'on' : 'off' }}</span><span>Clipboard {{ terminalSession.policy?.allowClipboard ? 'allowed' : 'blocked' }}</span><span>Uploads {{ terminalSession.policy?.allowUpload ? 'allowed' : 'blocked' }}</span><span>Downloads {{ terminalSession.policy?.allowDownload ? 'allowed' : 'blocked' }}</span></div><div ref="terminalHost" class="xterm-host"/></div></FloatingWindow>
     <VmwareImportWizard v-model="importDialog" :kind-filter="vmwareKind" />
     <AzureArcImportWizard v-model="azureArcImportDialog" />
     <SubnetScanWizard v-model="subnetScanDialog" />
@@ -542,6 +545,7 @@ onBeforeUnmount(closeTerminal)
 }
 
 .terminal-window { display: grid; gap: 10px; }.terminal-status { display: flex; gap: 8px; align-items: center; padding: 9px 11px; border: 1px solid var(--line); color: var(--cyan); font: .75rem 'Share Tech Mono', monospace; }.terminal-status .v-btn { margin-left: auto; }.xterm-host { min-height: 390px; padding: 10px; overflow: hidden; border: 1px solid rgba(40, 211, 255, .34); background: #03070b; box-shadow: inset 0 0 38px rgba(40, 211, 255, .035); }.xterm-host :deep(.xterm) { height: 390px; }.xterm-host :deep(.xterm-viewport) { scrollbar-color: rgba(70, 214, 255, .42) #03070b; }
+.terminal-policy { display:flex; flex-wrap:wrap; gap:6px; padding:8px 10px; border:1px solid rgba(255,181,46,.28); color:var(--muted); background:rgba(255,181,46,.05); font:.66rem 'Share Tech Mono',monospace; }.terminal-policy span { padding-right:7px; border-right:1px solid var(--line); }
 
 @media (max-width: 720px) { .node-form-grid, .group-editor-fields { grid-template-columns: 1fr; }.connection-summary, .group-editor-intro { align-items: flex-start; flex-direction: column; }.node-tab-content { min-height: 0; } }
 </style>

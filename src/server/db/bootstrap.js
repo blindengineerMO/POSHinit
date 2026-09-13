@@ -667,6 +667,19 @@ function ensureWorkflowSchema() {
   `)
 }
 
+function ensureRemoteSessionSchema() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS remote_sessions (
+      id TEXT PRIMARY KEY, machine_id TEXT, requested_by TEXT, transport TEXT NOT NULL, status TEXT NOT NULL, recording_enabled INTEGER NOT NULL DEFAULT 1, opened_at TEXT NOT NULL, closed_at TEXT, created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS remote_session_events (
+      id TEXT PRIMARY KEY, session_id TEXT NOT NULL, sequence INTEGER NOT NULL, event_type TEXT NOT NULL, content TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL,
+      UNIQUE(session_id, sequence), FOREIGN KEY (session_id) REFERENCES remote_sessions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS remote_session_events_session_idx ON remote_session_events(session_id, sequence);
+  `)
+}
+
 function ensureDynamicGroupSchema() {
   const columns = db.prepare('PRAGMA table_info(deployment_groups)').all().map((column) => column.name)
   if (!columns.includes('group_type')) db.exec("ALTER TABLE deployment_groups ADD COLUMN group_type TEXT NOT NULL DEFAULT 'manual'")
@@ -1082,6 +1095,7 @@ export function initializeDatabase() {
   ensureRunbookReleaseSchema()
   ensureApprovalWorkflowSchema()
   ensureWorkflowSchema()
+  ensureRemoteSessionSchema()
   ensureDynamicGroupSchema()
   seedSettings()
   seedDemoData()

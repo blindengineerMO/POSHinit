@@ -291,6 +291,12 @@ export const useAppStore = defineStore('app', {
     async disconnectTerminal(sessionId) {
       await this.api(`/api/terminal/${sessionId}/disconnect`, { method: 'POST' })
     },
+    async terminalTranscript(sessionId) { return this.api(`/api/terminal/${sessionId}/transcript`) },
+    async auditTerminalClipboard(sessionId, direction, length) { return this.api(`/api/terminal/${sessionId}/clipboard`, { method: 'POST', body: JSON.stringify({ direction, length }) }) },
+    async terminalTransferGuard(sessionId, direction) { return this.api(`/api/terminal/${sessionId}/transfer/${direction}`, { method: 'POST' }) },
+    async brokerRemoteSession(machineId, kind) { return this.api(`/api/machines/${machineId}/broker/${kind}`, { method: 'POST' }) },
+    async remoteSessionSettings() { return this.api('/api/settings/remote-sessions') },
+    async saveRemoteSessionSettings(settings) { return this.api('/api/settings/remote-sessions', { method: 'POST', body: JSON.stringify(settings) }) },
     async saveGroup(group) {
       await this.api('/api/groups', {
         method: 'POST',
