@@ -22,6 +22,7 @@ import { listUsers, saveUser } from '../services/userService.js'
 import { discoverVmwareMachines, importVcenterMachines, importVmwareMachines, importVmwareSelection, saveVcenterSettings } from '../services/vcenterService.js'
 import { discoverAzureArcMachines, importAzureArcSelection, saveAzureArcSettings } from '../services/azureArcService.js'
 import { discoverProxmoxMachines, importProxmoxSelection, saveProxmoxSettings } from '../services/proxmoxService.js'
+import { discoverXenServerMachines, importXenServerSelection, saveXenServerSettings } from '../services/xenServerService.js'
 import { validatePowerShell } from '../services/powershellService.js'
 import { auditTerminalClipboard, brokeredSessionLaunch, cancelTerminalCommand, connectTerminal, disconnectTerminal, listTerminalTranscript, runTerminalCommand, streamTerminalCommand, terminalTransferGuard } from '../services/terminalService.js'
 import { encryptSecret } from '../utils/crypto.js'
@@ -36,6 +37,7 @@ import { listAuditEvents, recordAudit, verifyAuditChain } from '../services/audi
 import { ensureManagedInventorySources, listInventorySourceErrors, listInventorySourceHistory, listInventorySources, syncInventorySource, updateInventorySource } from '../services/inventorySourceService.js'
 import { deleteWorkflowTemplate, getWorkflowRun, listWorkflowRuns, listWorkflowTemplates, saveWorkflowTemplate, startWorkflowRun, validateWorkflowGraph } from '../services/workflowService.js'
 import { aiAssistPreview, confirmRecommendation, listRecommendations } from '../services/recommendationService.js'
+import { beginMfaEnrollment, changePassword, confirmMfaEnrollment, disableMfa, getProfile, saveTheme } from '../services/profileService.js'
 import { completeWorkerTarget, heartbeat, listWorkerPools, listWorkers, pollWorker, registerWorker, saveWorkerPool, setWorkerDrain } from '../services/workerControlService.js'
 import { evidenceBundle, exportReportArtifact, generateReport, getReportArtifact, listReportArtifacts, listReportSchedules, reportingDashboard, saveReportSchedule, setReportLegalHold } from '../services/reportingService.js'
 
@@ -140,6 +142,12 @@ export function createRouter() {
     recordLogout(req.user, { ip: req.ip })
     res.status(204).end()
   })
+  router.get('/api/profile', (req, res) => res.json(getProfile(req.user.id)))
+  router.post('/api/profile/password', (req, res, next) => { try { res.json(changePassword(req.user.id, req.body)) } catch (error) { next(error) } })
+  router.post('/api/profile/mfa/enroll', (req, res) => res.json(beginMfaEnrollment(req.user.id)))
+  router.post('/api/profile/mfa/confirm', (req, res, next) => { try { res.json(confirmMfaEnrollment(req.user.id, req.body)) } catch (error) { next(error) } })
+  router.post('/api/profile/mfa/disable', (req, res, next) => { try { res.json(disableMfa(req.user.id, req.body)) } catch (error) { next(error) } })
+  router.post('/api/profile/theme', (req, res, next) => { try { res.json(saveTheme(req.user.id, req.body.theme)) } catch (error) { next(error) } })
 
   router.get('/api/bootstrap', (req, res) => {
     res.json({
@@ -592,6 +600,9 @@ export function createRouter() {
   })
   router.post('/api/proxmox/discover', async (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can discover Proxmox machines' }); return res.json(await discoverProxmoxMachines(getSettings().proxmox, req.body.connectorId)) })
   router.post('/api/proxmox/import-selection', async (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can import Proxmox machines' }); return res.json(await importProxmoxSelection(getSettings().proxmox, req.body.connectorId, req.body.machineIds, req.body.credentialIds)) })
+  router.post('/api/settings/xenserver', requirePermission('settings:manage'), (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' }); res.json(saveXenServerSettings(req.body)) })
+  router.post('/api/xenserver/discover', requirePermission('inventory:manage'), async (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can discover XenServer machines' }); res.json(await discoverXenServerMachines(getSettings().xenserver, req.body.connectorId)) })
+  router.post('/api/xenserver/import-selection', requirePermission('inventory:manage'), async (req, res) => { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can import XenServer machines' }); res.json(await importXenServerSelection(getSettings().xenserver, req.body.connectorId, req.body.machineIds, req.body.credentialIds)) })
 
   router.get('/api/logs', (req, res) => {
     res.json(searchLogs(req.query.q || ''))

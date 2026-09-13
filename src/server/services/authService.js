@@ -3,6 +3,7 @@ import { get } from '../db/client.js'
 import { createToken } from '../utils/crypto.js'
 import { writeLog } from './logService.js'
 import { dispatchNotificationEvent } from './notificationPolicyService.js'
+import { validMfaForUser } from './profileService.js'
 
 function publicUser(user) {
   return {
@@ -13,6 +14,8 @@ function publicUser(user) {
     status: user.status,
     entraEnabled: Boolean(user.entra_enabled),
     entraEmail: user.entra_email || '',
+    theme: user.theme || 'purple',
+    mfaEnabled: Boolean(user.mfa_enabled),
   }
 }
 
@@ -31,9 +34,9 @@ function invalidCredentials(context, email, provider) {
   return error
 }
 
-export function login({ email, password }, context = {}) {
+export function login({ email, password, mfaCode }, context = {}) {
   const user = get('SELECT * FROM users WHERE email = ?', [email])
-  if (!user || user.status !== 'active' || user.entra_enabled || !bcrypt.compareSync(password, user.password_hash)) {
+  if (!user || user.status !== 'active' || user.entra_enabled || !bcrypt.compareSync(password, user.password_hash) || !validMfaForUser(user, mfaCode)) {
     throw invalidCredentials(context, email, 'Local')
   }
 

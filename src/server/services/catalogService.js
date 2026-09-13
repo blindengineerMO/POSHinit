@@ -121,6 +121,7 @@ export function getCatalog(user = {}) {
     })),
   }
   settings.proxmox = { ...(settings.proxmox || {}), connectors: (settings.proxmox?.connectors || []).map(({ apiTokenEncrypted, ...connector }) => ({ ...connector, apiTokenConfigured: Boolean(apiTokenEncrypted && decryptSecret(apiTokenEncrypted)) })) }
+  settings.xenserver = { ...(settings.xenserver || {}), connectors: (settings.xenserver?.connectors || []).map(({ passwordEncrypted, ...connector }) => ({ ...connector, passwordConfigured: Boolean(passwordEncrypted && decryptSecret(passwordEncrypted)) })) }
 
   return {
     users: canManageIdentity ? users : [],

@@ -4,12 +4,14 @@ import { getSettings } from './settingsService.js'
 import { discoverVmwareMachines, normalizeVmwareConnectors } from './vcenterService.js'
 import { discoverAzureArcMachines, normalizeAzureArcConnectors } from './azureArcService.js'
 import { discoverProxmoxMachines, normalizeProxmoxConnectors } from './proxmoxService.js'
+import { discoverXenServerMachines, normalizeXenServerConnectors } from './xenServerService.js'
 import { saveMachine } from './machineService.js'
 
 const providers = {
   vmware: { settingKey: 'vcenter', sourceTypes: (connector) => connector.kind === 'esxi-host' ? 'esxi' : 'vcenter', connectors: normalizeVmwareConnectors, discover: discoverVmwareMachines },
   azure_arc: { settingKey: 'azureArc', sourceTypes: () => 'azure_arc', connectors: normalizeAzureArcConnectors, discover: discoverAzureArcMachines },
   proxmox: { settingKey: 'proxmox', sourceTypes: () => 'proxmox', connectors: normalizeProxmoxConnectors, discover: discoverProxmoxMachines },
+  xenserver: { settingKey: 'xenserver', sourceTypes: () => 'xenserver', connectors: normalizeXenServerConnectors, discover: discoverXenServerMachines },
 }
 
 const defaultMapping = { name: 'name', fqdn: 'fqdn', ipAddress: 'ipAddress', osFamily: 'osFamily', notes: 'notes' }

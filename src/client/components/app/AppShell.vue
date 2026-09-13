@@ -34,7 +34,7 @@ const visibleItems = computed(() => items.filter((item) => !item.roles || item.r
       <div class="top-actions">
         <div class="connection"><span class="signal" /> API ONLINE</div>
         <v-btn icon="mdi-refresh" size="small" variant="text" aria-label="Refresh data" @click="store.bootstrap" />
-        <v-menu location="bottom end"><template #activator="{ props }"><v-btn v-bind="props" variant="text" class="operator-user" append-icon="mdi-chevron-down"><v-icon icon="mdi-account-circle-outline" /><span>{{ store.currentUser?.email }}</span></v-btn></template><v-list class="user-menu" density="compact"><v-list-item :title="store.currentUser?.role || 'operator'" prepend-icon="mdi-shield-account-outline" /><v-list-item title="Sign out" prepend-icon="mdi-logout" @click="store.logout" /></v-list></v-menu>
+        <v-menu location="bottom end"><template #activator="{ props }"><v-btn v-bind="props" variant="text" class="operator-user" append-icon="mdi-chevron-down"><v-icon icon="mdi-account-circle-outline" /><span>{{ store.currentUser?.email }}</span></v-btn></template><v-list class="user-menu" density="compact"><v-list-item :title="store.currentUser?.role || 'operator'" prepend-icon="mdi-shield-account-outline" /><v-list-item title="Profile" prepend-icon="mdi-account-cog-outline" to="/profile" /><v-list-item title="Sign out" prepend-icon="mdi-logout" @click="store.logout" /></v-list></v-menu>
       </div>
     </header>
     <aside class="sidenav">

@@ -71,7 +71,7 @@ export function normalizeRuntimeSettings(value = {}) {
 }
 
 export function getSettings() {
-  const settings = ['branding', 'vcenter', 'azureArc', 'proxmox', 'runtime', 'secretProviders', 'audit', 'remoteSessions'].reduce((accumulator, key) => {
+  const settings = ['branding', 'vcenter', 'azureArc', 'proxmox', 'xenserver', 'runtime', 'secretProviders', 'audit', 'remoteSessions'].reduce((accumulator, key) => {
     accumulator[key] = readSetting(key)
     return accumulator
   }, {})

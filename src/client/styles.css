@@ -1,6 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap');
 
 :root { color-scheme: dark; font-family: 'Exo 2', sans-serif; --void: #16072b; --base: #1b0b34; --surface: #221040; --surface-raised: #301457; --surface-control: rgba(35, 15, 62, .82); --glass: rgba(27, 11, 52, .82); --line: rgba(233, 130, 255, .22); --line-hot: rgba(255, 150, 246, .72); --cyan: #dd8aff; --cyan-dim: #9d4cdf; --amber: #ff62d1; --green: #a879ff; --red: #ff5a9b; --text: #faedff; --muted: #c2a8cf; --faint: #81678f; --topbar: 52px; --statusbar: 27px; --sidebar: 254px; --sidebar-compact: 58px; }
+:root[data-theme="ocean-wave"] { --void:#031824;--base:#062536;--surface:#093247;--surface-raised:#0b4964;--surface-control:rgba(6,42,59,.84);--glass:rgba(3,28,42,.86);--line:rgba(100,222,244,.25);--line-hot:rgba(153,241,255,.75);--cyan:#70e8ff;--cyan-dim:#259fca;--amber:#36c8c2;--green:#9eeac8;--red:#ff8eab;--text:#e9fbff;--muted:#a8cbd5;--faint:#6f9baa; }
+:root[data-theme="moderno"] { --void:#111315;--base:#181b1e;--surface:#202428;--surface-raised:#2c3136;--surface-control:rgba(26,29,32,.9);--glass:rgba(18,20,22,.9);--line:rgba(235,238,240,.2);--line-hot:rgba(255,255,255,.75);--cyan:#eceff1;--cyan-dim:#aab1b8;--amber:#b9c0c6;--green:#d9dee2;--red:#e58282;--text:#f4f6f7;--muted:#b7bec4;--faint:#7e878f; }
 * { box-sizing: border-box; }
 html, body, #app { width: 100%; min-height: 100%; margin: 0; }
 html, body { background: var(--void); }

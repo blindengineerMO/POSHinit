@@ -11,6 +11,7 @@ import AzureArcImportWizard from '../components/inventory/AzureArcImportWizard.v
 import SubnetScanWizard from '../components/inventory/SubnetScanWizard.vue'
 import MachineImportWizard from '../components/inventory/MachineImportWizard.vue'
 import ProxmoxImportWizard from '../components/inventory/ProxmoxImportWizard.vue'
+import XenServerImportWizard from '../components/inventory/XenServerImportWizard.vue'
 import { useAppStore } from '../stores/app'
 
 const store = useAppStore()
@@ -28,6 +29,7 @@ const cmdbSources = ref([])
 const cmdbEditor = ref(false)
 const vmwareKind = ref('')
 const proxmoxImportDialog = ref(false)
+const xenServerImportDialog = ref(false)
 const nodeTab = ref('record')
 const nodeConnectionResult = ref(null)
 const selectedRun = ref(null)
@@ -132,6 +134,7 @@ function selectMachineImport(method) {
   if (method === 'network') subnetScanDialog.value = true
   if (method === 'azure-arc') azureArcImportDialog.value = true
   if (method === 'proxmox') proxmoxImportDialog.value = true
+  if (method === 'xenserver') xenServerImportDialog.value = true
   if (method === 'vcenter' || method === 'esxi') { vmwareKind.value = method === 'esxi' ? 'esxi-host' : 'vcenter'; importDialog.value = true }
 }
 
@@ -470,6 +473,7 @@ onBeforeUnmount(closeTerminal)
     <SubnetScanWizard v-model="subnetScanDialog" />
     <MachineImportWizard v-model="importLauncherDialog" @select="selectMachineImport" />
     <ProxmoxImportWizard v-model="proxmoxImportDialog" />
+    <XenServerImportWizard v-model="xenServerImportDialog" />
   </div>
 </template>
 

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import AppShell from './components/app/AppShell.vue'
 import { useAppStore } from './stores/app'
 
@@ -8,6 +8,7 @@ const store = useAppStore()
 const form = reactive({
   email: 'admin@poshinit.local',
   password: 'ChangeMe123!',
+  mfaCode: '',
 })
 
 const loginDisabled = computed(() => store.loading || !form.email || !form.password)
@@ -15,8 +16,10 @@ const enterpriseEnabled = ref(false)
 const enterprisePending = ref(false)
 
 async function submitLogin() {
-  await store.login(form.email, form.password)
+  await store.login(form.email, form.password, form.mfaCode)
 }
+
+watch(() => store.currentUser?.theme, (theme) => { document.documentElement.dataset.theme = theme || 'purple' }, { immediate: true })
 
 function startEnterpriseLogin() {
   globalThis.location.assign('/auth/entra/start')
@@ -86,6 +89,7 @@ onMounted(async () => {
                   autocomplete="current-password"
                   prepend-inner-icon="mdi-key-outline"
                 />
+                <v-text-field v-model="form.mfaCode" label="Authenticator code (if enrolled)" autocomplete="one-time-code" inputmode="numeric" prepend-inner-icon="mdi-shield-key-outline" />
                 <v-alert v-if="store.lastError" type="error" variant="tonal" class="mb-4">
                   {{ store.lastError }}
                 </v-alert>

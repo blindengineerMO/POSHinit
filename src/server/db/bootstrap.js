@@ -686,6 +686,13 @@ function ensureWorkerControlPlaneSchema() {
   CREATE INDEX IF NOT EXISTS execution_workers_heartbeat_idx ON execution_workers(status,last_heartbeat_at);`)
 }
 
+function ensureProfileSchema() {
+  const columns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
+  if (!columns.includes('theme')) db.exec("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'purple'")
+  if (!columns.includes('mfa_enabled')) db.exec('ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0')
+  if (!columns.includes('mfa_secret_encrypted')) db.exec("ALTER TABLE users ADD COLUMN mfa_secret_encrypted TEXT NOT NULL DEFAULT ''")
+}
+
 function ensureReportingSchema() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS report_schedules (
@@ -796,6 +803,7 @@ function seedSettings() {
       connectors: [],
     },
     proxmox: { connectors: [] },
+    xenserver: { connectors: [] },
     secretProviders: { providers: [] },
     notifications: {
       defaultChannel: 'log',
@@ -1122,6 +1130,7 @@ export function initializeDatabase() {
   ensureWorkflowSchema()
   ensureRemoteSessionSchema()
   ensureWorkerControlPlaneSchema()
+  ensureProfileSchema()
   ensureReportingSchema()
   ensureDynamicGroupSchema()
   seedSettings()

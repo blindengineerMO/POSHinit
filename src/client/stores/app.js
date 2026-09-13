@@ -63,14 +63,14 @@ export const useAppStore = defineStore('app', {
       if (!response.ok) throw new Error(`Download failed with status ${response.status}`)
       return response.blob()
     },
-    async login(email, password) {
+    async login(email, password, mfaCode = '') {
       this.loading = true
       this.lastError = ''
 
       try {
         const payload = await this.api('/auth/login', {
           method: 'POST',
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ email, password, mfaCode }),
         })
         await this.startSession(payload)
       } catch (error) {
@@ -80,6 +80,12 @@ export const useAppStore = defineStore('app', {
         this.loading = false
       }
     },
+    async profile() { return this.api('/api/profile') },
+    async changePassword(payload) { return this.api('/api/profile/password', { method: 'POST', body: JSON.stringify(payload) }) },
+    async beginMfaEnrollment() { return this.api('/api/profile/mfa/enroll', { method: 'POST' }) },
+    async confirmMfaEnrollment(payload) { const profile = await this.api('/api/profile/mfa/confirm', { method: 'POST', body: JSON.stringify(payload) }); this.currentUser = { ...this.currentUser, ...profile }; return profile },
+    async disableMfa(payload) { const profile = await this.api('/api/profile/mfa/disable', { method: 'POST', body: JSON.stringify(payload) }); this.currentUser = { ...this.currentUser, ...profile }; return profile },
+    async saveTheme(theme) { const profile = await this.api('/api/profile/theme', { method: 'POST', body: JSON.stringify({ theme }) }); this.currentUser = { ...this.currentUser, ...profile }; return profile },
     async completeEnterpriseLogin(ticket) {
       const payload = await this.api('/auth/entra/complete', {
         method: 'POST',
@@ -409,6 +415,9 @@ export const useAppStore = defineStore('app', {
     },
     async discoverProxmox(connectorId) { return this.api('/api/proxmox/discover', { method: 'POST', body: JSON.stringify({ connectorId }) }) },
     async importProxmoxSelection(connectorId, machineIds, credentialIds) { const result = await this.api('/api/proxmox/import-selection', { method: 'POST', body: JSON.stringify({ connectorId, machineIds, credentialIds }) }); this.catalog.machines = await this.api('/api/machines'); return result },
+    async saveXenServerSettings(settings) { const result = await this.api('/api/settings/xenserver', { method: 'POST', body: JSON.stringify(settings) }); this.catalog.settings.xenserver = result; return result },
+    async discoverXenServer(connectorId) { return this.api('/api/xenserver/discover', { method: 'POST', body: JSON.stringify({ connectorId }) }) },
+    async importXenServerSelection(connectorId, machineIds, credentialIds) { const result = await this.api('/api/xenserver/import-selection', { method: 'POST', body: JSON.stringify({ connectorId, machineIds, credentialIds }) }); this.catalog.machines = await this.api('/api/machines'); return result },
     async startSubnetScan(payload) {
       return this.api('/api/subnet-scans', { method: 'POST', body: JSON.stringify(payload) })
     },

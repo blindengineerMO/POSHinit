@@ -174,6 +174,18 @@ The **Command Deck** is a scope-aware operations dashboard rather than a static 
 
 Use `GET /api/operations/dashboard?projectId={id}&environmentId={id}` for the same API-first operational summary. It contains a normalized scope descriptor plus the raw metrics needed by external dashboards, and does not expose command output or secret material.
 
+### XenServer And XCP-ng Inventory
+
+**System Settings > XenServer / XCP-ng** manages one or more pool-master connectors. Each connector uses the native XenAPI JSON-RPC endpoint (`/jsonrpc`) with a sealed username/password, optional trusted self-signed TLS bypass, and optional auto-import deployment group. Discovery reads VM and guest-metrics records, excludes control domains, and reports guest name, OS, IP address, and power state where the guest agent supplies them.
+
+Choose **XenServer / XCP-ng** from **Node Inventory > Add Or Import Machines** to select discovered VMs, bind existing remoting credentials, and import them with `xenserver` source provenance. XenServer connectors are also registered as managed inventory sources, enabling scheduled reconciliation, field mapping, health/error history, and stale-node policy alongside VMware, Proxmox, and Azure Arc sources.
+
+### User Profile, MFA, And Themes
+
+Select **Profile** from the top-right user menu to change the local password, enroll or disable time-based one-time-password (TOTP) MFA, and select a persisted personal theme. MFA enrollment displays a standard `otpauth://` provisioning URI and setup key; a valid six-digit verification code is required before MFA is enabled. Enrolled local accounts must provide their authenticator code at sign-in. Entra sign-in continues to use MFA and Conditional Access from the Entra tenant.
+
+The available themes are **Purple Signal** (default), **Ocean Wave** (navy/cyan), and **Moderno** (graphite/grayscale). Theme preferences and security changes are stored per user and recorded in the immutable audit trail.
+
 ### Worker Control Plane
 
 POSHinit separates the browser/API control plane from private-network execution through a versioned, outbound-only worker protocol. The built-in executor continues to process unplaced work; dispatches with a `workerPoolId` are reserved for enrolled workers and cannot be claimed by the API process. This allows a worker inside a protected network to connect to WinRM, PowerShell Remoting, or SSH targets without exposing those target endpoints to the POSHinit web server.
