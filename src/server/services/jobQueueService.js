@@ -153,7 +153,7 @@ export function enqueueDispatch(payload, requestedBy, options = {}) {
     run(
       `INSERT INTO job_dispatches (id, idempotency_key, trigger_type, schedule_id, requested_by, status, cancel_requested, retry_limit, timeout_seconds, job_timeout_seconds, deadline_at, payload_json, queued_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'queued', 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [dispatchId, idempotencyKey, triggerType, scheduleId, requestedBy, retryLimit, timeoutSeconds, jobTimeoutSeconds, deadlineAt, JSON.stringify({ scriptIds, machineIds }), timestamp, timestamp, timestamp],
+      [dispatchId, idempotencyKey, triggerType, scheduleId, requestedBy, retryLimit, timeoutSeconds, jobTimeoutSeconds, deadlineAt, JSON.stringify({ scriptIds, machineIds, workerPoolId: payload.workerPoolId || null }), timestamp, timestamp, timestamp],
     )
     scriptIds.forEach((scriptId) => machineIds.forEach((machineId) => run(
       `INSERT INTO job_targets (id, dispatch_id, script_id, machine_id, status, attempt, max_attempts, timeout_seconds, available_at, created_at, updated_at)
@@ -235,6 +235,7 @@ function claimNextTarget(settings) {
      FROM job_targets jt JOIN job_dispatches jd ON jd.id = jt.dispatch_id
      LEFT JOIN machine_circuits mc ON mc.machine_id = jt.machine_id
      WHERE jt.status = 'queued' AND jt.available_at <= ? AND jd.cancel_requested = 0
+       AND (json_extract(jd.payload_json, '$.workerPoolId') IS NULL OR json_extract(jd.payload_json, '$.workerPoolId') = '')
        AND (jd.deadline_at IS NULL OR jd.deadline_at > ?)
        AND (mc.open_until IS NULL OR mc.open_until <= ?)
        AND (SELECT COUNT(*) FROM job_targets same_dispatch WHERE same_dispatch.dispatch_id = jt.dispatch_id AND same_dispatch.status = 'running') < ?
@@ -382,6 +383,8 @@ export function getReliabilityStatus() {
   const settings = runtimeSettings()
   return { ...settings, activeTargets: get("SELECT COUNT(*) AS count FROM job_targets WHERE status = 'running'")?.count || 0, queuedTargets: get("SELECT COUNT(*) AS count FROM job_targets WHERE status = 'queued'")?.count || 0, deadLetters: get('SELECT COUNT(*) AS count FROM job_dead_letters WHERE resolved_at IS NULL')?.count || 0, openCircuits: get("SELECT COUNT(*) AS count FROM machine_circuits WHERE state = 'open' AND open_until > ?", [nowIso()])?.count || 0 }
 }
+
+export function refreshDispatchStatus(dispatchId) { return refreshDispatch(dispatchId) }
 
 export async function processQueuedJobs() {
   if (workerRunning) return 0

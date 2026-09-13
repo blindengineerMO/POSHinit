@@ -13,6 +13,7 @@ const items = [
     { to: '/approvals', icon: 'mdi-shield-check-outline', label: 'Approval Queue', roles: ['admin', 'approver'] },
   { to: '/workflows', icon: 'mdi-graph-outline', label: 'Visual Workflows', roles: ['admin', 'operator'] },
   { to: '/remote-sessions', icon: 'mdi-shield-terminal', label: 'Remote Sessions', roles: ['admin'] },
+  { to: '/workers', icon: 'mdi-server-network', label: 'Worker Fleet', roles: ['admin'] },
   { to: '/reports', icon: 'mdi-pulse', label: 'Run Ledger' },
   { to: '/inventory', icon: 'mdi-server-network-outline', label: 'Node Inventory' },
   { to: '/vault', icon: 'mdi-key-variant', label: 'Secret Vault', roles: ['admin', 'operator'] },

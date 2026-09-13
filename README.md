@@ -97,6 +97,7 @@ npm test
 | `LOG_LEVEL` | `info` | Pino log level |
 | `SCHEDULER_POLL_MS` | `15000` | Schedule polling interval |
 | `WORKER_POLL_MS` | `1000` | Durable job-worker polling interval |
+| `WORKER_ENROLLMENT_TOKEN` | `WEBHOOK_SECRET` fallback | Bootstrap secret used only to enroll an outbound execution worker; set a distinct high-entropy value in production |
 | `DEMO_PASSWORD` | `ChangeMe123!` | Seeded admin password |
 | `PUBLIC_APP_URL` | `http://localhost:$PORT` | Public base URL used after enterprise sign-in |
 | `ENTRA_TENANT_ID` | none | Microsoft Entra tenant ID or tenant domain |
@@ -157,6 +158,17 @@ Administrators configure **System Settings > Execution Runtime** in a floating o
 - Worker modes: **Active** claims work, **Draining** finishes in-flight work without claiming more, and **Maintenance** pauses claims and rejects new dispatches with `503`.
 
 Administrators can inspect the runtime health summary at `GET /api/reliability/status`, list outstanding dead letters at `GET /api/reliability/dead-letters`, and requeue one using `POST /api/reliability/dead-letters/{id}/requeue`.
+
+### Worker Control Plane
+
+POSHinit separates the browser/API control plane from private-network execution through a versioned, outbound-only worker protocol. The built-in executor continues to process unplaced work; dispatches with a `workerPoolId` are reserved for enrolled workers and cannot be claimed by the API process. This allows a worker inside a protected network to connect to WinRM, PowerShell Remoting, or SSH targets without exposing those target endpoints to the POSHinit web server.
+
+- Create and drain worker pools in **Worker Fleet**. Pools have metadata labels and required worker labels. A worker must match every required label to claim that pool's jobs; draining either a pool or a worker completes in-flight work but prevents new claims.
+- Enroll with `POST /workers/enroll` and an `X-POSHinit-Worker-Enrollment` header containing `WORKER_ENROLLMENT_TOKEN`. Enrollment reports the worker name, pool ID, protocol/client version, capabilities, and labels, then returns a rotating per-worker bearer token exactly once.
+- Workers send `POST /workers/{id}/heartbeat`, poll `POST /workers/{id}/poll`, and report `POST /workers/{id}/targets/{targetId}/complete` with `X-POSHinit-Worker-Token` (or a bearer token). All v1 responses identify `protocolVersion: "v1"`; heartbeats update capability, version, label, and drain telemetry.
+- Poll responses include the script and target connection identity but never vault secret values. Credential resolution remains on the trusted execution host, and returned stdout/stderr is redacted before durable output and audit evidence are stored.
+
+Use a separate enrollment token from webhook automation in production, restrict it to deployment tooling, and rotate it when worker bootstrap access changes. The protocol is intentionally outbound-polling rather than inbound agent control; mTLS, automatic upgrades, and a packaged universal agent remain future work.
 
 ## High-Level Architecture
 
@@ -555,11 +567,3 @@ VMware connectors are configured in **System Settings > VMware Inventory**. Add 
 - The VMware TLS bypass applies only to a connector that explicitly enables it. Use it only for trusted endpoints with self-signed certificates.
 - Azure Arc client credentials are used only from the server to acquire Azure Resource Manager tokens. Grant the connector application least-privilege Azure RBAC, normally `Reader` for inventory discovery.
 - Proxmox API tokens are used only by the server for configured inventory requests. Grant only the minimum audit or inventory privileges, and enable the connector TLS bypass only for a trusted self-signed endpoint.
-
-## Recommended Next Work
-
-- Add approval workflows with approver UI and route enforcement
-- Add richer parameter schemas per script and per schedule
-- Add a shared Entra PKCE/session store for multi-instance deployments and deeper RBAC controls
-- Add notification retention controls and delivery retry visibility
-- Add streamed terminal output and long-running process support

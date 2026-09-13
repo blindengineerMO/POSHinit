@@ -11,6 +11,7 @@ import SettingsView from '../views/SettingsView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
 import WorkflowsView from '../views/WorkflowsView.vue'
 import RemoteSessionsView from '../views/RemoteSessionsView.vue'
+import WorkersView from '../views/WorkersView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -22,6 +23,7 @@ const router = createRouter({
     { path: '/approvals', name: 'approvals', component: ApprovalsView },
     { path: '/workflows', name: 'workflows', component: WorkflowsView },
     { path: '/remote-sessions', name: 'remote-sessions', component: RemoteSessionsView },
+    { path: '/workers', name: 'workers', component: WorkersView },
     { path: '/reports', name: 'reports', component: ReportsView },
     { path: '/inventory', name: 'inventory', component: InventoryView },
     { path: '/vault', name: 'vault', component: VaultView },

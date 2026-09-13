@@ -42,6 +42,7 @@ export const config = {
   },
   demoPassword: process.env.DEMO_PASSWORD || 'ChangeMe123!',
   webhookSecret: process.env.WEBHOOK_SECRET || 'poshinit-webhook-secret',
+  workerEnrollmentToken: process.env.WORKER_ENROLLMENT_TOKEN || process.env.WEBHOOK_SECRET || 'poshinit-worker-enrollment-secret',
 }
 
 export const isProduction = config.nodeEnv === 'production'

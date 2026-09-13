@@ -680,6 +680,12 @@ function ensureRemoteSessionSchema() {
   `)
 }
 
+function ensureWorkerControlPlaneSchema() {
+  db.exec(`CREATE TABLE IF NOT EXISTS worker_pools (id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,labels_json TEXT NOT NULL DEFAULT '{}',placement_json TEXT NOT NULL DEFAULT '{}',draining INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS execution_workers (id TEXT PRIMARY KEY,name TEXT NOT NULL,pool_id TEXT,version TEXT NOT NULL,capabilities_json TEXT NOT NULL DEFAULT '[]',labels_json TEXT NOT NULL DEFAULT '{}',token_hash TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active',last_heartbeat_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,FOREIGN KEY(pool_id) REFERENCES worker_pools(id) ON DELETE SET NULL);
+  CREATE INDEX IF NOT EXISTS execution_workers_heartbeat_idx ON execution_workers(status,last_heartbeat_at);`)
+}
+
 function ensureDynamicGroupSchema() {
   const columns = db.prepare('PRAGMA table_info(deployment_groups)').all().map((column) => column.name)
   if (!columns.includes('group_type')) db.exec("ALTER TABLE deployment_groups ADD COLUMN group_type TEXT NOT NULL DEFAULT 'manual'")
@@ -1096,6 +1102,7 @@ export function initializeDatabase() {
   ensureApprovalWorkflowSchema()
   ensureWorkflowSchema()
   ensureRemoteSessionSchema()
+  ensureWorkerControlPlaneSchema()
   ensureDynamicGroupSchema()
   seedSettings()
   seedDemoData()

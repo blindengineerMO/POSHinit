@@ -36,6 +36,7 @@ import { listAuditEvents, recordAudit, verifyAuditChain } from '../services/audi
 import { ensureManagedInventorySources, listInventorySourceErrors, listInventorySourceHistory, listInventorySources, syncInventorySource, updateInventorySource } from '../services/inventorySourceService.js'
 import { deleteWorkflowTemplate, getWorkflowRun, listWorkflowRuns, listWorkflowTemplates, saveWorkflowTemplate, startWorkflowRun, validateWorkflowGraph } from '../services/workflowService.js'
 import { aiAssistPreview, confirmRecommendation, listRecommendations } from '../services/recommendationService.js'
+import { completeWorkerTarget, heartbeat, listWorkerPools, listWorkers, pollWorker, registerWorker, saveWorkerPool, setWorkerDrain } from '../services/workerControlService.js'
 
 const upload = multer({
   dest: path.join(config.uploadsDir),
@@ -86,6 +87,24 @@ export function createRouter() {
     }
 
     res.status(202).json(enqueueDispatch({ triggerType: 'webhook', scriptIds: req.body.scriptIds || [], machineIds: req.body.machineIds || [] }, null, { idempotencyKey: req.get('Idempotency-Key') }))
+  })
+
+  function workerToken(req) {
+    const authorization = req.headers.authorization || ''
+    return req.headers['x-poshinit-worker-token'] || (authorization.startsWith('Bearer ') ? authorization.slice(7) : '')
+  }
+
+  router.post('/workers/enroll', (req, res, next) => {
+    try { res.status(201).json(registerWorker(req.body, req.headers['x-poshinit-worker-enrollment'])) } catch (error) { next(error) }
+  })
+  router.post('/workers/:id/heartbeat', (req, res, next) => {
+    try { res.json(heartbeat(req.params.id, workerToken(req), req.body)) } catch (error) { next(error) }
+  })
+  router.post('/workers/:id/poll', (req, res, next) => {
+    try { res.json(pollWorker(req.params.id, workerToken(req))) } catch (error) { next(error) }
+  })
+  router.post('/workers/:id/targets/:targetId/complete', (req, res, next) => {
+    try { res.json(completeWorkerTarget(req.params.id, workerToken(req), req.params.targetId, req.body)) } catch (error) { next(error) }
   })
 
   function webhookToken(req) {
@@ -408,6 +427,17 @@ export function createRouter() {
 
   router.get('/api/settings', requirePermission('settings:manage'), (_req, res) => {
     res.json(getCatalog({ role: 'admin' }).settings)
+  })
+
+  router.get('/api/workers', requirePermission('settings:manage'), (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' })
+    return res.json({ workers: listWorkers(), pools: listWorkerPools() })
+  })
+  router.post('/api/worker-pools', requirePermission('settings:manage'), (req, res, next) => {
+    try { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' }); return res.json(saveWorkerPool(req.body, req.user.id)) } catch (error) { return next(error) }
+  })
+  router.post('/api/workers/:id/drain', requirePermission('settings:manage'), (req, res, next) => {
+    try { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' }); return res.json(setWorkerDrain(req.params.id, Boolean(req.body.draining), req.user.id)) } catch (error) { return next(error) }
   })
 
   router.get('/api/inventory-sources', requirePermission('settings:manage'), (req, res) => {
