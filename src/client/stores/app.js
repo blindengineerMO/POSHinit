@@ -423,5 +423,13 @@ export const useAppStore = defineStore('app', {
       this.logResults = await this.api(`/api/logs?q=${encodeURIComponent(query || '')}`)
       return this.logResults
     },
+    async reportingDashboard(periodDays = 30) { return this.api(`/api/reports/dashboard?periodDays=${periodDays}`) },
+    async reportSchedules() { return this.api('/api/reports/schedules') },
+    async saveReportSchedule(schedule) { return this.api('/api/reports/schedules', { method: 'POST', body: JSON.stringify(schedule) }) },
+    async reportArtifacts() { return this.api('/api/reports/artifacts') },
+    async generateReport(report) { return this.api('/api/reports/generate', { method: 'POST', body: JSON.stringify(report) }) },
+    async setReportLegalHold(id, legalHold) { return this.api(`/api/reports/artifacts/${id}/legal-hold`, { method: 'POST', body: JSON.stringify({ legalHold }) }) },
+    async reportEvidence(id) { return this.api(`/api/reports/artifacts/${id}/evidence`) },
+    async downloadReportArtifact(id, format) { return this.apiBlob(`/api/reports/artifacts/${id}/export/${format}`) },
   },
 })

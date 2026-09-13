@@ -37,6 +37,7 @@ import { ensureManagedInventorySources, listInventorySourceErrors, listInventory
 import { deleteWorkflowTemplate, getWorkflowRun, listWorkflowRuns, listWorkflowTemplates, saveWorkflowTemplate, startWorkflowRun, validateWorkflowGraph } from '../services/workflowService.js'
 import { aiAssistPreview, confirmRecommendation, listRecommendations } from '../services/recommendationService.js'
 import { completeWorkerTarget, heartbeat, listWorkerPools, listWorkers, pollWorker, registerWorker, saveWorkerPool, setWorkerDrain } from '../services/workerControlService.js'
+import { evidenceBundle, exportReportArtifact, generateReport, getReportArtifact, listReportArtifacts, listReportSchedules, reportingDashboard, saveReportSchedule, setReportLegalHold } from '../services/reportingService.js'
 
 const upload = multer({
   dest: path.join(config.uploadsDir),
@@ -594,6 +595,15 @@ export function createRouter() {
   router.get('/api/logs', (req, res) => {
     res.json(searchLogs(req.query.q || ''))
   })
+  router.get('/api/reports/dashboard', requirePermission('reports:read'), (req, res) => res.json(reportingDashboard(req.query.periodDays, req.query)))
+  router.get('/api/reports/schedules', requirePermission('reports:read'), (_req, res) => res.json(listReportSchedules()))
+  router.post('/api/reports/schedules', requirePermission('settings:manage'), (req, res, next) => { try { res.json(saveReportSchedule(req.body, req.user.id)) } catch (error) { next(error) } })
+  router.get('/api/reports/artifacts', requirePermission('reports:read'), (req, res) => res.json(listReportArtifacts(req.query.limit)))
+  router.post('/api/reports/generate', requirePermission('reports:read'), (req, res, next) => { try { res.status(201).json(generateReport(req.body, req.user.id)) } catch (error) { next(error) } })
+  router.get('/api/reports/artifacts/:id', requirePermission('reports:read'), (req, res) => { const artifact = getReportArtifact(req.params.id); if (!artifact) return res.status(404).json({ error: 'Report artifact was not found' }); return res.json(artifact) })
+  router.get('/api/reports/artifacts/:id/evidence', requirePermission('reports:read'), (req, res) => { const bundle = evidenceBundle(req.params.id); if (!bundle) return res.status(404).json({ error: 'Report artifact was not found' }); recordAudit({ actorId: req.user.id, action: 'report.evidence.export', resourceType: 'report-artifact', resourceId: req.params.id }); return res.json(bundle) })
+  router.get('/api/reports/artifacts/:id/export/:format', requirePermission('reports:read'), (req, res) => { const exported = exportReportArtifact(req.params.id, req.params.format); if (!exported) return res.status(404).json({ error: 'Report artifact was not found' }); recordAudit({ actorId: req.user.id, action: 'report.export', resourceType: 'report-artifact', resourceId: req.params.id, context: { format: req.params.format } }); res.attachment(`poshinit-report-${req.params.id}.${exported.extension}`).type(exported.contentType).send(exported.body) })
+  router.post('/api/reports/artifacts/:id/legal-hold', requirePermission('settings:manage'), (req, res, next) => { try { if (req.user.role !== 'admin') return res.status(403).json({ error: 'Administrator access is required' }); return res.json(setReportLegalHold(req.params.id, Boolean(req.body.legalHold), req.user.id)) } catch (error) { return next(error) } })
   router.get('/api/audit-events', requirePermission('settings:manage'), (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only administrators can view audit evidence' })
     return res.json({ events: listAuditEvents(req.query.q || ''), integrity: verifyAuditChain() })

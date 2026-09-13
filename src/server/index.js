@@ -7,6 +7,7 @@ import { processDueSchedules } from './services/executionService.js'
 import { processQueuedJobs, recoverInterruptedJobs } from './services/jobQueueService.js'
 import { attachJobWebSocketGateway } from './services/jobWebSocketService.js'
 import { processDueInventorySources } from './services/inventorySourceService.js'
+import { processDueReports, pruneExpiredReportArtifacts } from './services/reportingService.js'
 import { logger } from './utils/logger.js'
 import { observeOperation } from './observability.js'
 
@@ -49,3 +50,13 @@ setInterval(async () => {
     logger.error({ error: error.message }, 'inventory source worker failed')
   }
 }, config.inventorySyncPollMs)
+
+setInterval(async () => {
+  try {
+    const generated = await observeOperation('reporting', 'schedule_poll', {}, () => processDueReports())
+    const pruned = pruneExpiredReportArtifacts()
+    if (generated || pruned) logger.info({ generated, pruned }, 'reporting maintenance completed')
+  } catch (error) {
+    logger.error({ error: error.message }, 'reporting loop failed')
+  }
+}, 60000)

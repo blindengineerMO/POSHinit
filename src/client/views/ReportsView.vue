@@ -1,173 +1,37 @@
 <script setup>
-import { ref } from 'vue'
-import DataTable from '../components/common/DataTable.vue'
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import Chart from 'chart.js/auto'
 import FloatingWindow from '../components/common/FloatingWindow.vue'
 import NeonPanel from '../components/common/NeonPanel.vue'
 import { useAppStore } from '../stores/app'
-import { downloadExecutionReport } from '../utils/executionReport'
 
 const store = useAppStore()
-const detailOpen = ref(false)
-const selectedExecution = ref(null)
-const logQuery = ref('')
-
-function openExecution(row) {
-  selectedExecution.value = row
-  detailOpen.value = true
-}
-
-async function searchLogs() {
-  await store.searchLogs(logQuery.value)
-}
-
-async function exportExecution(row) {
-  await downloadExecutionReport(row)
-}
+const periodDays = ref(30); const dashboard = ref(null); const schedules = ref([]); const artifacts = ref([]); const scheduleEditor = ref(false); const evidenceEditor = ref(false); const evidence = ref(null); const chartCanvas = ref(null); let chart
+const draft = reactive({ id: '', name: '', template: 'executive', frequency: 'weekly', periodDays: 30, recipientsText: '', sloSuccessPercent: 99, sloDurationSeconds: 3600, retentionDays: 365, legalHold: false, enabled: true })
+function openSchedule(item = null) { Object.assign(draft, item ? { ...item, recipientsText: item.recipients.join(', ') } : { id: '', name: '', template: 'executive', frequency: 'weekly', periodDays: 30, recipientsText: '', sloSuccessPercent: 99, sloDurationSeconds: 3600, retentionDays: 365, legalHold: false, enabled: true }); scheduleEditor.value = true }
+async function load() { [dashboard.value, schedules.value, artifacts.value] = await Promise.all([store.reportingDashboard(periodDays.value), store.reportSchedules(), store.reportArtifacts()]); await drawChart() }
+async function drawChart() { await nextTick(); if (!chartCanvas.value || !dashboard.value) return; chart?.destroy(); chart = new Chart(chartCanvas.value, { type: 'line', data: { labels: dashboard.value.trend.map((item) => item.day), datasets: [{ label: 'Successful runs', data: dashboard.value.trend.map((item) => item.success), borderColor: '#46d9ff', backgroundColor: 'rgba(70,217,255,.12)', fill: true, tension: .35 }, { label: 'Failed runs', data: dashboard.value.trend.map((item) => item.failed), borderColor: '#ff6da9', backgroundColor: 'rgba(255,109,169,.05)', fill: true, tension: .35 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#c8b8d7' } } }, scales: { x: { ticks: { color: '#9582a8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { beginAtZero: true, ticks: { color: '#9582a8', precision: 0 }, grid: { color: 'rgba(255,255,255,.05)' } } } } }) }
+async function saveSchedule() { await store.saveReportSchedule({ ...draft, recipients: draft.recipientsText.split(',').map((item) => item.trim()).filter(Boolean) }); scheduleEditor.value = false; await load() }
+async function generate() { await store.generateReport({ name: 'On-demand executive report', template: 'executive', periodDays: periodDays.value }); await load() }
+async function download(artifact, format) { const blob = await store.downloadReportArtifact(artifact.id, format); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${artifact.name}.${format === 'xlsx' ? 'xls' : format}`; link.click(); URL.revokeObjectURL(link.href) }
+async function openEvidence(artifact) { evidence.value = await store.reportEvidence(artifact.id); evidenceEditor.value = true }
+async function toggleHold(artifact) { await store.setReportLegalHold(artifact.id, !artifact.legalHold); await load() }
+watch(periodDays, load); onMounted(load); onBeforeUnmount(() => chart?.destroy())
 </script>
 
 <template>
-  <div class="page-grid">
-    <NeonPanel subtitle="Execution Reporting" title="Scheduled And Manual Run Output">
-      <div class="table-pad">
-        <DataTable
-          :items="store.catalog.executions || []"
-          :columns="[
-            { key: 'script_name', label: 'Script' },
-            { key: 'machine_name', label: 'Machine' },
-            { key: 'status', label: 'Status' },
-            { key: 'started_at', label: 'Started' },
-            { key: 'exit_code', label: 'Exit' },
-            { key: 'actions', label: 'Report' },
-          ]"
-        >
-          <template #script_name="{ row }">
-            <button class="link-button" type="button" @click="openExecution(row)">{{ row.script_name }}</button>
-          </template>
-          <template #actions="{ row }">
-            <v-btn size="x-small" variant="text" prepend-icon="mdi-file-pdf-box" @click="exportExecution(row)">Create PDF</v-btn>
-          </template>
-        </DataTable>
-      </div>
-    </NeonPanel>
-
-    <NeonPanel subtitle="Searchable Logs" title="API And PowerShell Log Browser">
-      <div class="toolbar-row log-toolbar">
-        <v-text-field v-model="logQuery" label="Search full logs" prepend-inner-icon="mdi-text-search" hide-details />
-        <v-btn class="glass-button" prepend-icon="mdi-magnify" @click="searchLogs">Search</v-btn>
-      </div>
-
-      <div class="log-list">
-        <article v-for="entry in store.logResults" :key="entry.id" class="log-entry">
-          <div class="chip-line">
-            <v-chip size="small" variant="tonal">{{ entry.channel }}</v-chip>
-            <v-chip size="small" :color="entry.level === 'error' ? 'error' : 'info'" variant="tonal">{{ entry.level }}</v-chip>
-          </div>
-          <strong>{{ entry.message }}</strong>
-          <span class="mono muted">{{ entry.created_at }}</span>
-          <pre class="log-context">{{ JSON.stringify(entry.context, null, 2) }}</pre>
-        </article>
-      </div>
-    </NeonPanel>
-
-    <FloatingWindow v-model="detailOpen" title="Execution Detail" :width="560" :start-x="320" :start-y="132">
-      <div v-if="selectedExecution" class="detail-grid">
-        <div class="detail-actions">
-          <span class="muted">Open a print-ready execution ledger and save it as a PDF.</span>
-          <v-btn class="glass-button" size="small" prepend-icon="mdi-file-pdf-box" @click="exportExecution(selectedExecution)">Create PDF Report</v-btn>
-        </div>
-        <div class="kv-grid">
-          <div>
-            <p class="section-eyebrow">Script</p>
-            <strong>{{ selectedExecution.script_name }}</strong>
-          </div>
-          <div>
-            <p class="section-eyebrow">Machine</p>
-            <strong>{{ selectedExecution.machine_name }}</strong>
-          </div>
-          <div>
-            <p class="section-eyebrow">Status</p>
-            <strong>{{ selectedExecution.status }}</strong>
-          </div>
-          <div>
-            <p class="section-eyebrow">Exit Code</p>
-            <strong>{{ selectedExecution.exit_code }}</strong>
-          </div>
-        </div>
-        <pre class="output-block">{{ selectedExecution.stdout || 'No stdout output.' }}</pre>
-        <pre class="output-block error-block">{{ selectedExecution.stderr || 'No stderr output.' }}</pre>
-      </div>
-    </FloatingWindow>
+  <div class="report-workspace">
+    <div class="toolbar-row"><div><p class="section-eyebrow">Evidence And Service Intelligence</p><h2 class="page-title">Run Ledger</h2><p class="lede">Executive reporting, SLO signals, durable evidence bundles, and governed retention.</p></div><div class="toolbar-actions"><v-select v-model="periodDays" :items="[7, 30, 90, 365]" density="compact" hide-details label="Period (days)"/><v-btn variant="text" prepend-icon="mdi-calendar-plus" @click="openSchedule()">Schedule</v-btn><v-btn class="glass-button" prepend-icon="mdi-file-chart-outline" @click="generate">Generate Report</v-btn></div></div>
+    <section v-if="dashboard" class="metric-grid"><article><span>Execution success</span><strong>{{ dashboard.summary.successPercent }}%</strong><small :class="dashboard.summary.slo.successMet ? 'good' : 'bad'">SLO {{ dashboard.summary.slo.successMet ? 'met' : 'at risk' }} · {{ dashboard.summary.slo.successGoal }}%</small></article><article><span>Average duration</span><strong>{{ dashboard.summary.averageDurationSeconds }}s</strong><small :class="dashboard.summary.slo.durationMet ? 'good' : 'bad'">Duration objective {{ dashboard.summary.slo.durationMet ? 'met' : 'at risk' }}</small></article><article><span>Completed runs</span><strong>{{ dashboard.summary.total }}</strong><small>{{ dashboard.summary.success }} successful · {{ dashboard.summary.failed }} non-success</small></article><article><span>Audit integrity</span><strong>{{ dashboard.evidence.auditIntegrity.valid ? 'VALID' : 'CHECK' }}</strong><small>Evidence chain verification at report time</small></article></section>
+    <NeonPanel subtitle="Runbook And Target Trends" title="Execution Signal"><div class="chart-wrap"><canvas ref="chartCanvas"/></div></NeonPanel>
+    <section class="analysis-grid"><NeonPanel subtitle="Runbook Reliability" title="Most Impacted Runbooks"><div class="mini-table"><div v-for="item in dashboard?.runbooks.slice(0, 6)" :key="item.name"><strong>{{ item.name }}</strong><span>{{ item.successPercent }}% success · {{ item.failed }} failed · {{ item.averageDurationSeconds }}s avg</span></div><p v-if="!dashboard?.runbooks.length" class="empty">No executions in this reporting period.</p></div></NeonPanel><NeonPanel subtitle="Target Reliability" title="Most Impacted Nodes"><div class="mini-table"><div v-for="item in dashboard?.targets.slice(0, 6)" :key="item.name"><strong>{{ item.name }}</strong><span>{{ item.successPercent }}% success · {{ item.failed }} failed · {{ item.averageDurationSeconds }}s avg</span></div><p v-if="!dashboard?.targets.length" class="empty">No executions in this reporting period.</p></div></NeonPanel></section>
+    <NeonPanel subtitle="Executive Delivery" title="Scheduled Report Policies"><template #actions><v-btn size="small" variant="text" @click="openSchedule()">New policy</v-btn></template><div class="schedule-grid"><article v-for="item in schedules" :key="item.id"><div><strong>{{ item.name }}</strong><span>{{ item.template }} · {{ item.frequency }} · {{ item.periodDays }}-day window</span></div><code>{{ item.enabled ? `next ${item.next_run_at || 'pending'}` : 'disabled' }}</code><small>{{ item.recipients.length ? item.recipients.join(', ') : 'Stored in Run Ledger only' }}</small><v-btn size="small" variant="text" @click="openSchedule(item)">Edit policy</v-btn></article><p v-if="!schedules.length" class="empty">Create a policy to retain scheduled executive report artifacts.</p></div></NeonPanel>
+    <NeonPanel subtitle="Exportable Evidence" title="Generated Report Artifacts"><div class="artifact-list"><article v-for="artifact in artifacts" :key="artifact.id"><div><strong>{{ artifact.name }}</strong><span>{{ artifact.template }} · {{ new Date(artifact.generated_at).toLocaleString() }}</span><small>{{ artifact.period_start.slice(0, 10) }} to {{ artifact.period_end.slice(0, 10) }} · {{ artifact.legalHold ? 'LEGAL HOLD' : `expires ${artifact.expires_at?.slice(0, 10) || 'never'}` }}</small></div><div class="artifact-actions"><v-btn size="small" variant="text" @click="download(artifact, 'csv')">CSV</v-btn><v-btn size="small" variant="text" @click="download(artifact, 'xlsx')">XLS</v-btn><v-btn size="small" variant="text" @click="download(artifact, 'pdf')">PDF</v-btn><v-btn size="small" variant="text" @click="openEvidence(artifact)">Evidence</v-btn><v-btn size="small" :color="artifact.legalHold ? 'warning' : undefined" variant="text" @click="toggleHold(artifact)">{{ artifact.legalHold ? 'Release hold' : 'Legal hold' }}</v-btn></div></article><p v-if="!artifacts.length" class="empty">Generate a report or wait for a report policy to run.</p></div></NeonPanel>
+    <FloatingWindow v-model="scheduleEditor" title="Executive Report Policy" :width="680" :start-x="295" :start-y="82"><form class="policy-form" @submit.prevent="saveSchedule"><v-text-field v-model="draft.name" label="Policy name"/><div class="field-grid"><v-select v-model="draft.template" :items="['executive', 'runbook-trend', 'target-trend', 'sla-slo', 'evidence']" label="Template"/><v-select v-model="draft.frequency" :items="['daily', 'weekly', 'monthly']" label="Cadence"/></div><div class="field-grid"><v-text-field v-model.number="draft.periodDays" type="number" label="Analysis period (days)"/><v-text-field v-model.number="draft.retentionDays" type="number" label="Retention (days)"/></div><div class="field-grid"><v-text-field v-model.number="draft.sloSuccessPercent" type="number" label="Success SLO (%)"/><v-text-field v-model.number="draft.sloDurationSeconds" type="number" label="Duration objective (seconds)"/></div><v-text-field v-model="draft.recipientsText" label="Executive recipients" hint="Comma-separated addresses. The artifact remains in the ledger; delivery integrations can consume this recipient list." persistent-hint/><v-switch v-model="draft.enabled" density="compact" color="success" label="Generate on schedule"/><v-switch v-model="draft.legalHold" density="compact" color="warning" label="Place every generated artifact under legal hold"/><v-alert type="info" density="compact" variant="tonal">Legal-held artifacts cannot be removed by retention maintenance. Changes and evidence exports are audit recorded.</v-alert><div class="actions"><v-btn variant="text" @click="scheduleEditor = false">Cancel</v-btn><v-btn class="glass-button" type="submit">Save policy</v-btn></div></form></FloatingWindow>
+    <FloatingWindow v-model="evidenceEditor" title="Report Evidence Bundle" :width="820" :start-x="210" :start-y="72"><div v-if="evidence" class="evidence"><v-alert :type="evidence.integrity.valid ? 'success' : 'error'" density="compact" variant="tonal">Audit chain {{ evidence.integrity.valid ? 'verified at export' : 'requires investigation' }}.</v-alert><h3>Approval evidence</h3><pre>{{ JSON.stringify(evidence.approvals, null, 2) }}</pre><h3>Dispatch event index</h3><pre>{{ JSON.stringify(evidence.dispatchEvents, null, 2) }}</pre></div></FloatingWindow>
   </div>
 </template>
 
 <style scoped>
-.table-pad,
-.log-list {
-  padding: 20px;
-}
-
-.link-button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #7addff;
-  cursor: pointer;
-}
-
-.log-toolbar {
-  padding: 20px 20px 0;
-}
-
-.log-list {
-  display: grid;
-  gap: 12px;
-}
-
-.log-entry {
-  display: grid;
-  gap: 6px;
-  padding: 14px;
-  border-radius: 18px;
-  background: rgba(71, 115, 214, 0.08);
-}
-
-.log-context,
-.output-block {
-  margin: 0;
-  padding: 12px;
-  border-radius: 14px;
-  background: rgba(2, 6, 14, 0.86);
-  color: #9fd7ff;
-  overflow: auto;
-  font-family: 'Azeret Mono', monospace;
-  font-size: 0.8rem;
-}
-
-.error-block {
-  color: #ffb2ca;
-}
-
-.detail-grid {
-  display: grid;
-  gap: 16px;
-}
-
-.detail-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 11px 12px;
-  border: 1px solid rgba(40, 211, 255, .2);
-  border-radius: 14px;
-  background: rgba(40, 211, 255, .05);
-  font-size: .75rem;
-}
-
-@media (max-width: 560px) {
-  .detail-actions {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
+.report-workspace,.analysis-grid,.policy-form{display:grid;gap:14px}.toolbar-actions{display:flex;gap:8px;align-items:center}.toolbar-actions .v-input{width:130px}.lede,.empty,small{color:var(--muted);font-size:.76rem}.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.metric-grid article{display:grid;gap:5px;padding:15px;border:1px solid var(--line);background:linear-gradient(135deg,rgba(70,217,255,.09),rgba(198,81,255,.08))}.metric-grid span{color:var(--muted);font-size:.72rem}.metric-grid strong{color:var(--cyan);font:700 1.55rem Rajdhani,sans-serif}.good{color:var(--green)}.bad{color:#ff8cae}.chart-wrap{height:260px;padding:15px}.analysis-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mini-table,.artifact-list{display:grid;gap:1px;padding:12px}.mini-table div,.artifact-list article{display:flex;justify-content:space-between;gap:12px;padding:11px;border-bottom:1px solid var(--line)}.mini-table div{align-items:center}.mini-table span,.artifact-list span{color:var(--muted);font-size:.72rem}.schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:10px;padding:14px}.schedule-grid article{display:grid;gap:8px;padding:13px;border:1px solid var(--line);background:rgba(70,217,255,.04)}.schedule-grid article div,.artifact-list article>div:first-child{display:grid;gap:3px}.schedule-grid code{color:var(--cyan);font-size:.65rem;white-space:normal}.artifact-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.actions{display:flex;justify-content:flex-end;gap:8px}.evidence{display:grid;gap:12px}.evidence h3{margin:0;font-size:.88rem}.evidence pre{max-height:250px;margin:0;padding:12px;overflow:auto;background:rgba(0,0,0,.4);color:var(--cyan);font-size:.68rem}@media(max-width:850px){.metric-grid,.analysis-grid{grid-template-columns:1fr 1fr}.toolbar-row,.artifact-list article{align-items:flex-start;flex-direction:column}.toolbar-actions{width:100%;flex-wrap:wrap}.artifact-actions{justify-content:flex-start}}@media(max-width:520px){.metric-grid,.analysis-grid,.field-grid{grid-template-columns:1fr}}
 </style>

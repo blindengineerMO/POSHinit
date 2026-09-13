@@ -686,6 +686,25 @@ function ensureWorkerControlPlaneSchema() {
   CREATE INDEX IF NOT EXISTS execution_workers_heartbeat_idx ON execution_workers(status,last_heartbeat_at);`)
 }
 
+function ensureReportingSchema() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS report_schedules (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, template TEXT NOT NULL DEFAULT 'executive', frequency TEXT NOT NULL DEFAULT 'weekly', period_days INTEGER NOT NULL DEFAULT 30,
+      recipients_json TEXT NOT NULL DEFAULT '[]', slo_success_percent REAL NOT NULL DEFAULT 99, slo_duration_seconds INTEGER NOT NULL DEFAULT 3600,
+      retention_days INTEGER NOT NULL DEFAULT 365, legal_hold INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1,
+      next_run_at TEXT, last_run_at TEXT, created_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS report_artifacts (
+      id TEXT PRIMARY KEY, schedule_id TEXT, name TEXT NOT NULL, template TEXT NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL,
+      summary_json TEXT NOT NULL DEFAULT '{}', generated_by TEXT, generated_at TEXT NOT NULL, expires_at TEXT, legal_hold INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL, FOREIGN KEY(schedule_id) REFERENCES report_schedules(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS report_schedules_due_idx ON report_schedules(enabled, next_run_at);
+    CREATE INDEX IF NOT EXISTS report_artifacts_retention_idx ON report_artifacts(expires_at, legal_hold);
+  `)
+}
+
 function ensureDynamicGroupSchema() {
   const columns = db.prepare('PRAGMA table_info(deployment_groups)').all().map((column) => column.name)
   if (!columns.includes('group_type')) db.exec("ALTER TABLE deployment_groups ADD COLUMN group_type TEXT NOT NULL DEFAULT 'manual'")
@@ -1103,6 +1122,7 @@ export function initializeDatabase() {
   ensureWorkflowSchema()
   ensureRemoteSessionSchema()
   ensureWorkerControlPlaneSchema()
+  ensureReportingSchema()
   ensureDynamicGroupSchema()
   seedSettings()
   seedDemoData()

@@ -159,6 +159,15 @@ Administrators configure **System Settings > Execution Runtime** in a floating o
 
 Administrators can inspect the runtime health summary at `GET /api/reliability/status`, list outstanding dead letters at `GET /api/reliability/dead-letters`, and requeue one using `POST /api/reliability/dead-letters/{id}/requeue`.
 
+### Executive Reporting And Evidence
+
+**Run Ledger** now turns historical execution records into executive, runbook, target, SLA/SLO, and evidence templates. Select a 7, 30, 90, or 365-day reporting window to review Chart.js execution trends, per-runbook and per-node success rates, failure counts, average duration, and whether the configured success-rate and duration objectives are being met.
+
+- Create recurring daily, weekly, or monthly executive report policies from the floating **Executive Report Policy** editor. Each policy sets its template, analysis window, recipients, success/duration SLOs, retention period, enabled state, and an optional legal hold that applies to every artifact it creates. When SMTP alert delivery is configured, scheduled summaries are delivered to the policy recipients and delivery evidence is audited.
+- The reporting maintenance loop generates due artifacts and removes expired ones every minute. Legal-held artifacts are excluded from retention deletion until an administrator explicitly releases the hold; schedule changes, report generation, evidence exports, and hold actions are recorded in the immutable audit trail.
+- Generated artifacts support `CSV`, Excel-compatible `XLS`, and native `PDF` exports through `GET /api/reports/artifacts/{id}/export/{csv|xlsx|pdf}`. `GET /api/reports/artifacts/{id}/evidence` retrieves the associated report metrics, approval records, dispatch-event index, and audit-chain verification as a durable evidence bundle.
+- API consumers can use `GET /api/reports/dashboard`, `GET/POST /api/reports/schedules`, `GET /api/reports/artifacts`, and `POST /api/reports/generate`. Report exports and evidence bundles contain redacted persisted evidence only; no vault secret values are included.
+
 ### Worker Control Plane
 
 POSHinit separates the browser/API control plane from private-network execution through a versioned, outbound-only worker protocol. The built-in executor continues to process unplaced work; dispatches with a `workerPoolId` are reserved for enrolled workers and cannot be claimed by the API process. This allows a worker inside a protected network to connect to WinRM, PowerShell Remoting, or SSH targets without exposing those target endpoints to the POSHinit web server.
